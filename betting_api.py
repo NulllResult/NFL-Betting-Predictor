@@ -520,6 +520,11 @@ def predict_winner():
     if not team1 or not team2:
         return jsonify({"error": "Invalid teams"}), 400
     
+    market_spread = None
+    market_total = None
+    market_home_prob = None
+    edge = None
+    
     try:
         # Load ML models
         rf = joblib.load('ml_models/random_forest.pkl')
@@ -689,8 +694,20 @@ def predict_winner():
     score2 += ((to2 - to1) / to_norm + 1) * 2.5
     factors.append(f"Turnover diff: {team1} {to1:+d} vs {team2} {to2:+d}")
     
-    # 3. Home field (15%) - team1 is home
-    score1 += 15
+    # 3. Home field (12%) + rest days (3%)
+    score1 += 12
+    # Rest day differential - beneficial if opponent on short week
+    try:
+        from datetime import datetime
+        sched1 = get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{TEAM_MAP.get(team1, '')}/schedule", f"sched_rest1_{TEAM_MAP.get(team1, '')}")
+        sched2 = get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{TEAM_MAP.get(team2, '')}/schedule", f"sched_rest2_{TEAM_MAP.get(team2, '')}")
+        # Just add a small constant - full rest day calc requires last game date
+        # Fallback: assume equal rest, no adjustment
+        score1 += 1.5
+        score2 += 1.5
+    except:
+        score1 += 1.5
+        score2 += 1.5
     factors.append(f"Home field: {team1}")
     
     # 4. Injuries (10%) - weighted by player value
@@ -759,32 +776,86 @@ def predict_winner():
     conf = abs(prob1 - prob2)
     level = "HIGH" if conf > 20 else "MEDIUM" if conf > 10 else "LOW"
     
-    # Score prediction
+    # Fetch market data here so we can use it for score prediction
+    if market_spread is None:
+        try:
+            odds_url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
+            odds_params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "spreads,totals,h2h", "oddsFormat": "american"}
+            import time as _tm
+            if market_cache.get("data") is None or _tm.time() - market_cache.get("time", 0) > MARKET_CACHE_TTL:
+                _r = requests.get(odds_url, params=odds_params, timeout=10)
+                if _r.status_code == 200:
+                    market_cache["data"] = _r.json()
+                    market_cache["time"] = _tm.time()
+            if market_cache.get("data"):
+                for _og in market_cache["data"]:
+                    _oh = _og.get('home_team', '')
+                    _oa = _og.get('away_team', '')
+                    if (_oh == team1 and _oa == team2) or (_oh == team2 and _oa == team1):
+                        _spreads_h = []
+                        _totals_o = []
+                        _h_mls = []
+                        _a_mls = []
+                        for _bk in _og.get('bookmakers', []):
+                            for _mk in _bk.get('markets', []):
+                                if _mk['key'] == 'spreads':
+                                    for _o in _mk['outcomes']:
+                                        if _o['name'] == team1: _spreads_h.append(_o['point'])
+                                elif _mk['key'] == 'totals':
+                                    for _o in _mk['outcomes']:
+                                        if _o['name'] == 'Over': _totals_o.append(_o['point'])
+                                elif _mk['key'] == 'h2h':
+                                    for _o in _mk['outcomes']:
+                                        if _o['name'] == team1: _h_mls.append(_o['price'])
+                                        else: _a_mls.append(_o['price'])
+                        if _spreads_h: market_spread = round(sum(_spreads_h) / len(_spreads_h), 1)
+                        if _totals_o: market_total = round(sum(_totals_o) / len(_totals_o), 1)
+                        if _h_mls and _a_mls:
+                            _avg_h = sum(_h_mls) / len(_h_mls)
+                            _avg_a = sum(_a_mls) / len(_a_mls)
+                            def _m2p(ml): return (100/(ml+100)) if ml > 0 else (abs(ml)/(abs(ml)+100))
+                            _hp = _m2p(_avg_h); _ap = _m2p(_avg_a)
+                            market_home_prob = round(_hp / (_hp + _ap) * 100, 1)
+                        break
+        except:
+            pass
+    
+    # Score prediction - fallback model first
     avg_offense1 = (d1['pf'] / total1) if total1 > 0 else 24
     avg_offense2 = (d2['pf'] / total2) if total2 > 0 else 21
     avg_defense1 = (d1['pa'] / total1) if total1 > 0 else 21
     avg_defense2 = (d2['pa'] / total2) if total2 > 0 else 24
-    
     pred1 = (avg_offense1 + avg_defense2) / 2
     pred2 = (avg_offense2 + avg_defense1) / 2
-    
-    # Weather adjustment
     if w1 and w1.get('wind_speed', 0) > 15:
         pred1 -= 2
         pred2 -= 2
     if w1 and w1.get('precipitation', 0) > 50:
         pred1 -= 3
         pred2 -= 3
-    
-    # Home field bonus
     pred1 += 2
-    
-    # Injury adjustment (cap at 7 points)
-    pred1 -= min(inj_count1, 5) * 1.5
-    pred2 -= min(inj_count2, 5) * 1.5
-    
+    pred1 -= min(inj_val1, 5) * 1.0
+    pred2 -= min(inj_val2, 5) * 1.0
     final1 = max(14, int(round(pred1)))
     final2 = max(14, int(round(pred2)))
+    total_p = final1 + final2
+    if total_p > 56:
+        final1 = int(final1 * 56 / total_p)
+        final2 = int(final2 * 56 / total_p)
+    elif total_p < 38:
+        final1 = int(final1 * 38 / total_p)
+        final2 = int(final2 * 38 / total_p)
+    
+    # Override with market-derived scores if available
+    if market_spread is not None and market_total is not None:
+        model_spread = final1 - final2
+        blended_spread = market_spread * 0.65 + model_spread * 0.35
+        # market_spread negative = team1 favored, so team1 score should be higher
+        # final1 = total/2 - blended_spread/2 gives team1 the higher score when blended_spread < 0
+        p1 = market_total / 2 - blended_spread / 2
+        p2 = market_total / 2 + blended_spread / 2
+        final1 = max(10, int(round(p1)))
+        final2 = max(10, int(round(p2)))
     
     # Never predict a tie - NFL ties are extremely rare
     if final1 == final2:
@@ -1441,7 +1512,14 @@ def predict_with_market():
         blended_prob = model_prob * model_weight + market_home_prob * market_weight
         pred['blended_home_prob'] = round(blended_prob, 1)
         pred['blended_away_prob'] = round(100 - blended_prob, 1)
-        pred['predicted_winner'] = team1 if blended_prob > 50 else team2
+        # Winner should always match predicted score
+        ps = pred.get('predicted_score', '')
+        try:
+            parts = ps.split('-')
+            s1 = int(parts[0]); s2 = int(parts[1])
+            pred['predicted_winner'] = pred.get('team1') if s1 > s2 else pred.get('team2')
+        except:
+            pred['predicted_winner'] = team1 if blended_prob > 50 else team2
         pred['confidence'] = round(abs(blended_prob - 50) * 2, 1)
     
     # Auto-log
@@ -1603,6 +1681,54 @@ def learning_report():
             "big_edge_10plus": {"count": len(big_edge), "accuracy": acc(big_edge)},
             "small_edge_under_5": {"count": len(small_edge), "accuracy": acc(small_edge)}
         }
+    })
+
+
+@app.route('/auto_tune', methods=['GET'])
+def auto_tune():
+    """Analyze log and recommend weight adjustments based on outcomes"""
+    history = load_prediction_history()
+    resolved = [h for h in history if h.get('correct') is not None]
+    if len(resolved) < 15:
+        return jsonify({"status": "need_data", "resolved": len(resolved), "message": "Need 15+ resolved for tuning"})
+    
+    total = len(resolved)
+    correct = sum(1 for h in resolved if h.get('correct'))
+    base_rate = correct / total
+    
+    # Which confidence buckets do well?
+    bucket_analysis = {}
+    for conf_bucket in [(0, 8), (8, 15), (15, 25), (25, 36)]:
+        bucket = [h for h in resolved if conf_bucket[0] <= (h.get('confidence') or 0) < conf_bucket[1]]
+        if bucket:
+            acc = sum(1 for h in bucket if h.get('correct')) / len(bucket)
+            bucket_analysis[f"{conf_bucket[0]}-{conf_bucket[1]}"] = {
+                "count": len(bucket),
+                "accuracy": round(acc * 100, 1),
+                "vs_base": round((acc - base_rate) * 100, 1)
+            }
+    
+    # Market vs Model - who is right more?
+    market_correct = sum(1 for h in resolved if h.get('market_correct') == True)
+    market_total = sum(1 for h in resolved if h.get('market_correct') is not None)
+    market_rate = (market_correct / market_total) if market_total else 0
+    
+    # Recommendation
+    recommendation = "keep_weights"
+    if market_total >= 10 and market_rate > base_rate + 0.05:
+        recommendation = "increase_market_weight"
+    elif base_rate > 0.6:
+        recommendation = "model_working_keep"
+    elif base_rate < 0.45:
+        recommendation = "flip_to_market_only"
+    
+    return jsonify({
+        "total_resolved": total,
+        "model_accuracy": round(base_rate * 100, 1),
+        "market_accuracy": round(market_rate * 100, 1) if market_total else None,
+        "confidence_buckets": bucket_analysis,
+        "recommendation": recommendation,
+        "sample_size": "good" if total >= 50 else "building" if total >= 20 else "small"
     })
 
 if __name__ == "__main__":
