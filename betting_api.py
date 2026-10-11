@@ -565,39 +565,63 @@ def predict_winner():
 
     def get_team_data(team):
         abbr = TEAM_MAP.get(team, '')
-        # Try current season from ESPN team endpoint
         url = f"{ESPN_SITE_V2}/teams/{abbr}"
         data = get_cached_or_fetch(url, f"team_{abbr}")
         rec = "0-0"
         pf = pa = 0
+        turnovers_lost = turnovers_gained = 0
+        epa = 0.0
         if data and 'team' in data:
             for item in data['team']['record'].get('items', []):
                 if item.get('type') == 'total':
                     rec = item.get('summary', '0-0')
                     for stat in item.get('stats', []):
-                        if stat.get('name') == 'pointsFor': pf = int(stat.get('value', 0))
-                        elif stat.get('name') == 'pointsAgainst': pa = int(stat.get('value', 0))
+                        n = stat.get('name', '')
+                        v = stat.get('value', 0)
+                        if n == 'pointsFor': pf = int(v)
+                        elif n == 'pointsAgainst': pa = int(v)
+                        elif n in ['turnoversLost', 'giveaways']: turnovers_lost = int(v)
+                        elif n in ['turnoversGained', 'takeaways']: turnovers_gained = int(v)
+                        elif n in ['totalExpectedPointsAdded', 'epa']: epa = float(v)
+                break
         w = l = 0
         if '-' in rec:
             try:
                 w, l = map(int, rec.split('-'))
             except:
                 pass
-        # Current season has real games? Use it. Otherwise pull most recent completed games.
+        # If no current data, try 2026/2025 schedule aggregation
         if w + l == 0:
-            # Try 2026 preseason first
             w, l, pf, pa = count_schedule(abbr, 2026, 1)
-            # If nothing yet, try 2026 regular season
             if w + l == 0:
                 w2, l2, pf2, pa2 = count_schedule(abbr, 2026, 2)
                 if w2 + l2 > 0:
                     w, l, pf, pa = w2, l2, pf2, pa2
-            # Fall back to 2025 regular season
             if w + l == 0:
                 w, l, pf, pa = count_schedule(abbr, 2025, 2)
             rec = f"{w}-{l}"
-        return {'record': rec, 'wins': w, 'losses': l, 'pf': pf, 'pa': pa}
-    
+        # If we couldn't get turnovers, compute from schedule
+        if turnovers_lost == 0 and turnovers_gained == 0:
+            try:
+                sched = get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{abbr}/schedule?season=2026&seasontype=2", f"to_{abbr}") or get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{abbr}/schedule?season=2025&seasontype=2", f"to_{abbr}")
+                if sched and 'events' in sched:
+                    for ev in sched['events']:
+                        comp = ev.get('competitions', [{}])[0]
+                        if not comp.get('status', {}).get('type', {}).get('completed'): continue
+                        for c_ in comp.get('competitors', []):
+                            if c_.get('team', {}).get('abbreviation', '').upper() == abbr.upper():
+                                to_l = int(c_.get('turnovers', 0) or 0)
+                                turnovers_lost += to_l
+                                break
+            except:
+                pass
+        return {
+            'record': rec, 'wins': w, 'losses': l, 'pf': pf, 'pa': pa,
+            'turnover_diff': turnovers_gained - turnovers_lost,
+            'turnovers_lost': turnovers_lost, 'turnovers_gained': turnovers_gained,
+            'epa': epa
+        }
+
     d1 = get_team_data(team1)
     d2 = get_team_data(team2)
     
@@ -627,7 +651,7 @@ def predict_winner():
     score1 = score2 = 0.0
     factors = []
     
-    # 1. Win % (30%)
+    # 1. Win % (35%)
     total1 = d1['wins'] + d1['losses']
     total2 = d2['wins'] + d2['losses']
     wp1 = (d1['wins'] / total1) if total1 > 0 else 0.5
@@ -637,28 +661,46 @@ def predict_winner():
     wp2_weight = min(total2 / 10.0, 1.0)
     wp1 = 0.5 + (wp1 - 0.5) * wp1_weight
     wp2 = 0.5 + (wp2 - 0.5) * wp2_weight
-    score1 += wp1 * 30
-    score2 += wp2 * 30
+    score1 += wp1 * 35
+    score2 += wp2 * 35
     factors.append(f"Win%: {team1} {wp1:.0%} vs {team2} {wp2:.0%}")
     
-    # 2. Point differential (20%)
+    # 2. Point differential (15%) + EPA (5%)
     pd1 = d1['pf'] - d1['pa']
     pd2 = d2['pf'] - d2['pa']
     pd_norm = max(abs(pd1) + abs(pd2), 1)
-    score1 += ((pd1 - pd2) / pd_norm + 1) * 10
-    score2 += ((pd2 - pd1) / pd_norm + 1) * 10
+    score1 += ((pd1 - pd2) / pd_norm + 1) * 7.5
+    score2 += ((pd2 - pd1) / pd_norm + 1) * 7.5
+    # EPA differential (if available)
+    epa1 = d1.get('epa', 0) or 0
+    epa2 = d2.get('epa', 0) or 0
+    if epa1 != 0 or epa2 != 0:
+        epa_norm = max(abs(epa1) + abs(epa2), 1)
+        score1 += ((epa1 - epa2) / epa_norm + 1) * 2.5
+        score2 += ((epa2 - epa1) / epa_norm + 1) * 2.5
+        factors.append(f"EPA: {team1} {epa1:+.1f} vs {team2} {epa2:+.1f}")
     factors.append(f"Point diff: {team1} {pd1:+d} vs {team2} {pd2:+d}")
+    
+    # 2b. Turnover differential (5%)
+    to1 = d1.get('turnover_diff', 0)
+    to2 = d2.get('turnover_diff', 0)
+    to_norm = max(abs(to1) + abs(to2), 1)
+    score1 += ((to1 - to2) / to_norm + 1) * 2.5
+    score2 += ((to2 - to1) / to_norm + 1) * 2.5
+    factors.append(f"Turnover diff: {team1} {to1:+d} vs {team2} {to2:+d}")
     
     # 3. Home field (15%) - team1 is home
     score1 += 15
     factors.append(f"Home field: {team1}")
     
-    # 4. Injuries (10%)
-    inj_impact1 = max(0, 10 - min(inj_count1, 10) * 0.8)
-    inj_impact2 = max(0, 10 - min(inj_count2, 10) * 0.8)
+    # 4. Injuries (10%) - weighted by player value
+    inj_val1 = locals().get('inj_val1', 0.0)
+    inj_val2 = locals().get('inj_val2', 0.0)
+    inj_impact1 = max(0, 10 - inj_val1 * 0.8)
+    inj_impact2 = max(0, 10 - inj_val2 * 0.8)
     score1 += inj_impact1
     score2 += inj_impact2
-    factors.append(f"Injuries: {team1} {inj_count1} out vs {team2} {inj_count2} out")
+    factors.append(f"Injuries: {team1} {inj_val1:.1f} pts lost vs {team2} {inj_val2:.1f} pts lost")
     
     # 5. Weather (5%)
     weather_impact1 = weather_impact2 = 5
@@ -1296,6 +1338,47 @@ def predict_with_market():
                     print(f"[ODDS] API returned {_r.status_code}")
             except Exception as e:
                 print(f"[ODDS] Failed: {e}")
+        # Fallback: if The Odds API failed, use ESPN odds
+        if not market_cache["data"]:
+            try:
+                espn_odds_url = f"{ESPN_SITE_V2}/scoreboard?dates=2026"
+                espn_data = requests.get(espn_odds_url, timeout=10).json()
+                for ev in espn_data.get('events', []):
+                    comps = ev.get('competitions', [{}])[0].get('competitors', [])
+                    if len(comps) < 2: continue
+                    eh = next((x.get('team', {}).get('displayName', '') for x in comps if x.get('homeAway') == 'home'), '')
+                    ea = next((x.get('team', {}).get('displayName', '') for x in comps if x.get('homeAway') == 'away'), '')
+                    if (eh == team1 and ea == team2) or (eh == team2 and ea == team1):
+                        odds_list = ev.get('competitions', [{}])[0].get('odds', [])
+                        if odds_list:
+                            o = odds_list[0]
+                            spread_str = o.get('details', '')
+                            over_under = o.get('overUnder')
+                            if spread_str:
+                                try:
+                                    parts = spread_str.split()
+                                    if len(parts) >= 2:
+                                        market_spread = float(parts[-1])
+                                        # Adjust sign: ESPN gives favorite -N
+                                        if parts[0] != team1.split()[-1]:
+                                            market_spread = -market_spread
+                                except: pass
+                            if over_under:
+                                market_total = float(over_under)
+                            # Home ML
+                            hml = o.get('homeTeamOdds', {}).get('moneyLine')
+                            aml = o.get('awayTeamOdds', {}).get('moneyLine')
+                            if hml and aml:
+                                def m2p(ml):
+                                    ml = float(ml)
+                                    return (100/(ml+100)) if ml > 0 else (abs(ml)/(abs(ml)+100))
+                                hp = m2p(hml); ap = m2p(aml)
+                                market_home_prob = round(hp / (hp + ap) * 100, 1)
+                                edge = round(pred.get('team1_win_probability', 50) - market_home_prob, 1)
+                        break
+            except Exception as _e:
+                print(f"[ESPN ODDS] fallback failed: {_e}")
+        
         if market_cache["data"]:
             for og in market_cache["data"]:
                 oh = og.get('home_team', '')
@@ -1483,6 +1566,42 @@ def model_report():
             "count": len(edge_small),
             "correct": sum(1 for h in edge_small if h.get('correct')),
             "accuracy": round(sum(1 for h in edge_small if h.get('correct')) / len(edge_small) * 100, 1) if edge_small else 0
+        }
+    })
+
+
+@app.route('/learning_report', methods=['GET'])
+def learning_report():
+    """Shows which factors actually predict wins based on logged results"""
+    history = load_prediction_history()
+    resolved = [h for h in history if h.get('correct') is not None]
+    if len(resolved) < 10:
+        return jsonify({"status": "need_more_data", "resolved": len(resolved), "message": "Need 10+ resolved predictions"})
+    
+    # Accuracy by confidence level
+    low_conf = [h for h in resolved if (h.get('confidence') or 0) < 10]
+    med_conf = [h for h in resolved if 10 <= (h.get('confidence') or 0) < 18]
+    high_conf = [h for h in resolved if (h.get('confidence') or 0) >= 18]
+    
+    # Accuracy by edge size
+    big_edge = [h for h in resolved if h.get('edge') and abs(h.get('edge', 0)) >= 10]
+    small_edge = [h for h in resolved if h.get('edge') and abs(h.get('edge', 0)) < 5]
+    
+    def acc(lst):
+        if not lst: return None
+        return round(sum(1 for h in lst if h.get('correct')) / len(lst) * 100, 1)
+    
+    return jsonify({
+        "total_resolved": len(resolved),
+        "overall_accuracy": acc(resolved),
+        "by_confidence": {
+            "low_under_10": {"count": len(low_conf), "accuracy": acc(low_conf)},
+            "medium_10_18": {"count": len(med_conf), "accuracy": acc(med_conf)},
+            "high_over_18": {"count": len(high_conf), "accuracy": acc(high_conf)}
+        },
+        "by_edge": {
+            "big_edge_10plus": {"count": len(big_edge), "accuracy": acc(big_edge)},
+            "small_edge_under_5": {"count": len(small_edge), "accuracy": acc(small_edge)}
         }
     })
 
