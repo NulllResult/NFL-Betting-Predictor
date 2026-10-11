@@ -32,6 +32,9 @@ interface ApiService {
     @GET("predict")
     fun getPrediction(@Query("team1") team1: String, @Query("team2") team2: String): Call<PredictionResponse>
 
+    @GET("ml_predict")
+    fun getMlPrediction(@Query("team1") team1: String, @Query("team2") team2: String): Call<MlPredictionResponse>
+
     @GET("predict_with_market")
     fun getPredictionWithMarket(@Query("team1") team1: String, @Query("team2") team2: String): Call<PredictionResponse>
 
@@ -88,3 +91,18 @@ data class PreseasonStatsResponse(val stats: PlayerSeasonStats?)
 
 data class PredictionLogEntry(val date: String?, val team1: String?, val team2: String?, val predicted_winner: String?, val predicted_score: String?, val confidence: Double?, val actual_winner: String?, val actual_score: String?, val correct: Boolean?)
 data class PredictionLogResponse(val log: List<PredictionLogEntry>?, val total: Int?)
+
+data class MlPredictionResponse(
+    val team1: String?,
+    val team2: String?,
+    val ml_home_probability: Double?,
+    val market_home_prob: Double?,
+    val blended_home_probability: Double?,
+    val edge: Double?,
+    val predicted_winner: String?,
+    val predicted_score: String?,
+    val market_spread: Double?,
+    val market_total: Double?,
+    val confidence: Double?,
+    val confidence_level: String?
+)

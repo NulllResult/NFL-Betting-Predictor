@@ -1,4 +1,7 @@
 import requests
+import sys
+sys.path.insert(0, ".")
+from feature_updater import predict_ml_probability
 import joblib
 import pandas as pd
 from flask import Flask, jsonify, request
@@ -1729,6 +1732,128 @@ def auto_tune():
         "confidence_buckets": bucket_analysis,
         "recommendation": recommendation,
         "sample_size": "good" if total >= 50 else "building" if total >= 20 else "small"
+    })
+
+
+@app.route('/ml_predict', methods=['GET'])
+def ml_predict():
+    """Prediction using trained ML model"""
+    team1 = request.args.get('team1')
+    team2 = request.args.get('team2')
+    if not team1 or not team2:
+        return jsonify({"error": "Invalid teams"}), 400
+    
+    prob_home = predict_ml_probability(team1, team2)
+    if prob_home is None:
+        return jsonify({"error": "Insufficient data for ML prediction"}), 400
+    
+    # Fetch market data
+    market_home_prob = None
+    market_spread = None
+    market_total = None
+    edge = None
+    try:
+        odds_url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
+        odds_params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "spreads,totals,h2h", "oddsFormat": "american"}
+        odds_resp = requests.get(odds_url, params=odds_params, timeout=10)
+        if odds_resp.status_code == 200:
+            for og in odds_resp.json():
+                oh = og.get('home_team', '')
+                oa = og.get('away_team', '')
+                if (oh == team1 and oa == team2):
+                    spreads_h = []
+                    totals_o = []
+                    h_mls = []
+                    a_mls = []
+                    for bk in og.get('bookmakers', []):
+                        for mk in bk.get('markets', []):
+                            if mk['key'] == 'spreads':
+                                for o in mk['outcomes']:
+                                    if o['name'] == team1: spreads_h.append(o['point'])
+                            elif mk['key'] == 'totals':
+                                for o in mk['outcomes']:
+                                    if o['name'] == 'Over': totals_o.append(o['point'])
+                            elif mk['key'] == 'h2h':
+                                for o in mk['outcomes']:
+                                    if o['name'] == team1: h_mls.append(o['price'])
+                                    else: a_mls.append(o['price'])
+                    if spreads_h: market_spread = round(sum(spreads_h) / len(spreads_h), 1)
+                    if totals_o: market_total = round(sum(totals_o) / len(totals_o), 1)
+                    if h_mls and a_mls:
+                        ah = sum(h_mls) / len(h_mls)
+                        aa = sum(a_mls) / len(a_mls)
+                        def m2p(ml): return (100/(ml+100)) if ml > 0 else (abs(ml)/(abs(ml)+100))
+                        hp = m2p(ah); ap = m2p(aa)
+                        market_home_prob = round(hp / (hp + ap) * 100, 1)
+                    break
+    except:
+        pass
+    
+    # Blend: 50/50 when we have both, otherwise use whichever is available
+    ml_prob_pct = prob_home * 100
+    if market_home_prob is not None:
+        blended = round(ml_prob_pct * 0.5 + market_home_prob * 0.5, 1)
+        edge = round(ml_prob_pct - market_home_prob, 1)
+    else:
+        blended = round(ml_prob_pct, 1)
+    
+    # Winner ALWAYS based on blended probability
+    winner = team1 if blended > 50 else team2
+    
+    # Confidence from blended
+    confidence = round(abs(blended - 50) * 2, 1)
+    conf_level = "HIGH" if confidence > 20 else "MEDIUM" if confidence > 10 else "LOW"
+    
+    # Score: use market if available (spread sign is from home team's perspective)
+    if market_spread is not None and market_total is not None:
+        s1 = round(market_total / 2 - market_spread / 2)
+        s2 = round(market_total / 2 + market_spread / 2)
+    else:
+        # Fallback: derive from blended probability
+        base = 24
+        diff = (blended - 50) / 50 * 4
+        s1 = round(base + diff)
+        s2 = round(base - diff)
+    s1 = max(10, s1)
+    s2 = max(10, s2)
+    
+    # Ensure score matches winner
+    if winner == team1 and s1 <= s2:
+        s1 = s2 + 1
+    elif winner == team2 and s2 <= s1:
+        s2 = s1 + 1
+    
+    # Log for self-learning
+    try:
+        history = load_prediction_history()
+        history.append({
+            "timestamp": time.time(),
+            "date": time.strftime("%Y-%m-%d %H:%M"),
+            "team1": team1, "team2": team2,
+            "predicted_winner": winner,
+            "predicted_score": f"{s1}-{s2}",
+            "confidence": confidence,
+            "market_home_prob": market_home_prob,
+            "edge": edge,
+            "actual_winner": None, "actual_score": None, "correct": None,
+            "model_source": "ml_v3"
+        })
+        save_prediction_history(history)
+    except:
+        pass
+    
+    return jsonify({
+        "team1": team1, "team2": team2,
+        "ml_home_probability": round(ml_prob_pct, 1),
+        "market_home_prob": market_home_prob,
+        "blended_home_probability": blended,
+        "edge": edge,
+        "predicted_winner": winner,
+        "predicted_score": f"{s1}-{s2}",
+        "market_spread": market_spread,
+        "market_total": market_total,
+        "confidence": confidence,
+        "confidence_level": conf_level
     })
 
 if __name__ == "__main__":

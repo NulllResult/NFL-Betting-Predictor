@@ -668,33 +668,39 @@ class MainActivity : AppCompatActivity() {
     private fun fetchPrediction(team1: String, team2: String) {
         if (team1.isEmpty() || team2.isEmpty()) return
         showLoading(true)
-        apiService.getPredictionWithMarket(team1, team2).enqueue(object : Callback<PredictionResponse> {
-            override fun onResponse(call: Call<PredictionResponse>, response: Response<PredictionResponse>) {
+        apiService.getMlPrediction(team1, team2).enqueue(object : Callback<MlPredictionResponse> {
+            override fun onResponse(call: Call<MlPredictionResponse>, response: Response<MlPredictionResponse>) {
                 showLoading(false)
                 if (response.isSuccessful) {
                     val p = response.body()
                     val sb = StringBuilder()
-                    sb.append("PREDICTION\n==============================\n\n")
-                    sb.append("${p?.predicted_winner ?: "N/A"} WINS\n\n")
-                    sb.append("Predicted Score: ${p?.predicted_score ?: "N/A"}\n")
-                    sb.append("Predicted Spread: ${p?.predicted_spread ?: "N/A"}\n")
-                    sb.append("Predicted Total: ${p?.predicted_total ?: "N/A"}\n\n")
-                    sb.append("$team1: ${p?.team1_win_probability}%\n")
-                    sb.append("$team2: ${p?.team2_win_probability}%\n\n")
-                    if (p?.market_spread != null) {
-                        sb.append("MARKET CONSENSUS\n")
-                        sb.append("Spread: ${p.market_spread}\n")
-                        sb.append("Total: ${p.market_total}\n")
-                        sb.append("Home Win: ${p.market_home_prob}%\n")
+                    sb.append("${team1} vs ${team2}\n")
+                    sb.append("==============================\n\n")
+                    sb.append("${p?.predicted_winner ?: "?"} WINS\n\n")
+                    sb.append("Predicted Score: ${p?.predicted_score ?: "N/A"}\n\n")
+                    sb.append("Blended Win Probability:\n")
+                    sb.append("  ${team1}: ${p?.blended_home_probability ?: "?"}%\n")
+                    sb.append("  ${team2}: ${100 - (p?.blended_home_probability ?: 50.0)}%\n\n")
+                    sb.append("ML Model: ${p?.ml_home_probability ?: "?"}% home\n")
+                    if (p?.market_home_prob != null) {
+                        sb.append("Market: ${p.market_home_prob}% home\n")
                         sb.append("Edge: ${p.edge}%\n\n")
                     }
-                    sb.append("Confidence: ${p?.confidence}% (${p?.confidence_level})\n\n")
-                    sb.append("KEY FACTORS:\n")
-                    p?.key_factors?.forEach { sb.append("- $it\n") }
+                    if (p?.market_spread != null) {
+                        sb.append("MARKET LINES\n")
+                        sb.append("  Spread: ${p.market_spread}\n")
+                        sb.append("  Total: ${p.market_total}\n\n")
+                    }
+                    sb.append("Confidence: ${p?.confidence}% (${p?.confidence_level})\n")
                     resultText.text = sb.toString()
+                } else {
+                    resultText.text = "ML prediction not available for this matchup"
                 }
             }
-            override fun onFailure(call: Call<PredictionResponse>, t: Throwable) { showLoading(false) }
+            override fun onFailure(call: Call<MlPredictionResponse>, t: Throwable) {
+                showLoading(false)
+                resultText.text = "Error: ${t.message}"
+            }
         })
     }
 
