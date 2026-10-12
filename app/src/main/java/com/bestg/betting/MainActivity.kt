@@ -689,7 +689,7 @@ class MainActivity : AppCompatActivity() {
                         sb.append("Edge: ${p.edge}%\n\n")
                     }
                     if (p?.market_spread != null) {
-                        sb.append("MARKET LINES\n")
+                        sb.append("SPORTSBOOK LINE\n")
                         sb.append("  Spread: ${p.market_spread}\n")
                         sb.append("  Total: ${p.market_total}\n\n")
                     }
