@@ -1537,8 +1537,8 @@ def predict_with_market():
             "predicted_spread": pred.get('predicted_spread'),
             "predicted_total": pred.get('predicted_total'),
             "confidence": pred.get('confidence'),
-            "market_spread": market_spread,
-            "market_total": market_total,
+            "market_spread": (round(market_spread * 2) / 2 if market_spread is not None else None),
+            "market_total": (int(round(market_total)) if market_total is not None else None),
             "market_home_prob": market_home_prob,
             "edge": edge,
             "actual_winner": None, "actual_score": None, "correct": None
@@ -1804,42 +1804,51 @@ def ml_predict():
     confidence = round(abs(blended - 50) * 2, 1)
     conf_level = "HIGH" if confidence > 20 else "MEDIUM" if confidence > 10 else "LOW"
     
-    # Our model spread: derived from ML probability using win-prob-to-spread curve
-    # Roughly: 50% -> 0, 55% -> 1.5, 60% -> 3, 65% -> 4.5, 70% -> 6, 75% -> 8, 80% -> 10
-    ml_spread = (ml_prob_pct - 50) / 50 * 14  # range -14 to +14
-    # Blended spread: blend model and market if available
+    # Model spread from probability
+    ml_spread = (ml_prob_pct - 50) / 50 * 14
+    
+    # Blend with market if available
     if market_spread is not None:
-        # market_spread is from home team's perspective (negative = home favored)
-        model_spread_from_home = -ml_spread  # convert model prob to spread (negative if home favored)
-        blended_spread = round(market_spread * 0.6 + model_spread_from_home * 0.4, 1)
+        model_spread_from_home = -ml_spread
+        blended_spread = market_spread * 0.6 + model_spread_from_home * 0.4
     else:
         blended_spread = -ml_spread
     
-    # Total: use market total if available, else 45
+    # Round to nearest .0 or .5 (NFL convention)
+    blended_spread = round(blended_spread * 2) / 2
+    
+    # Total: whole number
     if market_total is not None:
-        total = round(market_total)
+        total = int(round(market_total))
     else:
         total = 45
     
-    # Derive scores from blended_spread + total
-    # If blended_spread negative, home is favored (home score > away score)
-    s1 = round(total / 2 - blended_spread / 2)
-    s2 = round(total / 2 + blended_spread / 2)
+    # Derive scores from spread + total
+    # blended_spread negative = home favored, so home score > away score
+    s1 = int(round(total / 2 - blended_spread / 2))
+    s2 = int(round(total / 2 + blended_spread / 2))
     s1 = max(10, s1)
     s2 = max(10, s2)
     
     # Ensure score matches winner
     if winner == team1 and s1 <= s2:
-        s1 = s2 + 2
+        s1 = s2 + 3
     elif winner == team2 and s2 <= s1:
-        s2 = s1 + 2
+        s2 = s1 + 3
+    # Fix any rounding drift so total still matches
+    actual_total = s1 + s2
+    if actual_total != total:
+        diff = total - actual_total
+        s1 += diff // 2
+        s2 += diff - (diff // 2)
     
-    # Human-readable spread string
-    bs = round(abs(blended_spread), 1)
+    # Spread display: .0 or .5
+    bs = abs(blended_spread)
+    bs_str = f"{bs:.1f}"
     if blended_spread < 0:
-        our_spread_str = f"{team1} -{bs}"
+        our_spread_str = f"{team1} -{bs_str}"
     elif blended_spread > 0:
-        our_spread_str = f"{team2} -{bs}"
+        our_spread_str = f"{team2} -{bs_str}"
     else:
         our_spread_str = "Pick'em"
     
@@ -1872,8 +1881,8 @@ def ml_predict():
         "predicted_score": f"{s1}-{s2}",
         "predicted_spread": our_spread_str,
         "predicted_total": total,
-        "market_spread": market_spread,
-        "market_total": market_total,
+        "market_spread": (round(market_spread * 2) / 2 if market_spread is not None else None),
+        "market_total": (int(round(market_total)) if market_total is not None else None),
         "confidence": confidence,
         "confidence_level": conf_level
     })
