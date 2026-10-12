@@ -101,6 +101,8 @@ data class MlPredictionResponse(
     val edge: Double?,
     val predicted_winner: String?,
     val predicted_score: String?,
+    val predicted_spread: String?,
+    val predicted_total: Int?,
     val market_spread: Double?,
     val market_total: Double?,
     val confidence: Double?,

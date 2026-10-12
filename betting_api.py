@@ -1804,24 +1804,44 @@ def ml_predict():
     confidence = round(abs(blended - 50) * 2, 1)
     conf_level = "HIGH" if confidence > 20 else "MEDIUM" if confidence > 10 else "LOW"
     
-    # Score: use market if available (spread sign is from home team's perspective)
-    if market_spread is not None and market_total is not None:
-        s1 = round(market_total / 2 - market_spread / 2)
-        s2 = round(market_total / 2 + market_spread / 2)
+    # Our model spread: derived from ML probability using win-prob-to-spread curve
+    # Roughly: 50% -> 0, 55% -> 1.5, 60% -> 3, 65% -> 4.5, 70% -> 6, 75% -> 8, 80% -> 10
+    ml_spread = (ml_prob_pct - 50) / 50 * 14  # range -14 to +14
+    # Blended spread: blend model and market if available
+    if market_spread is not None:
+        # market_spread is from home team's perspective (negative = home favored)
+        model_spread_from_home = -ml_spread  # convert model prob to spread (negative if home favored)
+        blended_spread = round(market_spread * 0.6 + model_spread_from_home * 0.4, 1)
     else:
-        # Fallback: derive from blended probability
-        base = 24
-        diff = (blended - 50) / 50 * 4
-        s1 = round(base + diff)
-        s2 = round(base - diff)
+        blended_spread = -ml_spread
+    
+    # Total: use market total if available, else 45
+    if market_total is not None:
+        total = round(market_total)
+    else:
+        total = 45
+    
+    # Derive scores from blended_spread + total
+    # If blended_spread negative, home is favored (home score > away score)
+    s1 = round(total / 2 - blended_spread / 2)
+    s2 = round(total / 2 + blended_spread / 2)
     s1 = max(10, s1)
     s2 = max(10, s2)
     
     # Ensure score matches winner
     if winner == team1 and s1 <= s2:
-        s1 = s2 + 1
+        s1 = s2 + 2
     elif winner == team2 and s2 <= s1:
-        s2 = s1 + 1
+        s2 = s1 + 2
+    
+    # Human-readable spread string
+    bs = round(abs(blended_spread), 1)
+    if blended_spread < 0:
+        our_spread_str = f"{team1} -{bs}"
+    elif blended_spread > 0:
+        our_spread_str = f"{team2} -{bs}"
+    else:
+        our_spread_str = "Pick'em"
     
     # Log for self-learning
     try:
@@ -1850,6 +1870,8 @@ def ml_predict():
         "edge": edge,
         "predicted_winner": winner,
         "predicted_score": f"{s1}-{s2}",
+        "predicted_spread": our_spread_str,
+        "predicted_total": total,
         "market_spread": market_spread,
         "market_total": market_total,
         "confidence": confidence,
