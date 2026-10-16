@@ -139,6 +139,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.testButton).setOnClickListener { testConnection() }
         findViewById<MaterialButton>(R.id.loadStatsButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setStatsMode() }
+        findViewById<MaterialButton>(R.id.loadPlayerButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setPlayerMode() }
         findViewById<MaterialButton>(R.id.predictButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setPredictMode() }
         findViewById<MaterialButton>(R.id.refreshAllButton).setOnClickListener {
             if (currentMode == "PREDICT" && gamesContainer.visibility == View.GONE) {
@@ -162,7 +163,7 @@ class MainActivity : AppCompatActivity() {
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
-            helpCycle = (helpCycle + 1) % 13
+            helpCycle = (helpCycle + 1) % 11
             when (helpCycle) {
                 0 -> showHelp()
                 1 -> showAccuracy()
@@ -964,9 +965,43 @@ class MainActivity : AppCompatActivity() {
         teamSpinner.adapter = teamAdapter
         teamSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                currentTeam = allNFLTeams[position]; loadRosterForTeam(currentTeam)
+                currentTeam = allNFLTeams[position]
+                loadRosterForTeam(currentTeam)
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        // Add props/preseason buttons below the spinners if not already present
+        val parent = spinnersRow.parent as? LinearLayout
+        if (parent != null && parent.findViewWithTag<View>("playerExtrasRow") == null) {
+            val extrasRow = LinearLayout(this)
+            extrasRow.tag = "playerExtrasRow"
+            extrasRow.orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.setMargins(0, 6, 0, 0)
+            extrasRow.layoutParams = lp
+
+            val propsBtn = com.google.android.material.button.MaterialButton(this)
+            propsBtn.text = "PROPS"
+            propsBtn.textSize = 11f
+            propsBtn.layoutParams = LinearLayout.LayoutParams(0, 96, 1f)
+            propsBtn.setOnClickListener { showPlayerProps() }
+            extrasRow.addView(propsBtn)
+
+            val psBtn = com.google.android.material.button.MaterialButton(this)
+            psBtn.text = "PRESEASON"
+            psBtn.textSize = 11f
+            val lp2 = LinearLayout.LayoutParams(0, 96, 1f)
+            lp2.setMargins(8, 0, 0, 0)
+            psBtn.layoutParams = lp2
+            psBtn.setOnClickListener { showPreseasonStats() }
+            extrasRow.addView(psBtn)
+
+            // Insert after spinnersRow
+            val spinnersIndex = parent.indexOfChild(spinnersRow)
+            parent.addView(extrasRow, spinnersIndex + 1)
         }
     }
 
