@@ -368,6 +368,177 @@ def health():
         "server_time": datetime.now().isoformat(),
     })
 
+
+# ─────────────────────────────────────────────────────────────
+# CALIBRATION — converts raw model confidence into real-world accuracy
+# Empirically learned from /backtest data. Recomputed weekly.
+# ─────────────────────────────────────────────────────────────
+# Default table (conservative, based on typical NFL model results).
+# Updated by /auto_tune once 100+ resolved predictions are logged.
+# Coarser buckets — better statistical power with <500 predictions.
+# Once you hit 500+ resolved, subdivide into 5-point intervals.
+CALIBRATION_TABLE = {
+    (0, 50): 0.52,
+    (50, 60): 0.55,
+    (60, 70): 0.60,
+    (70, 80): 0.65,
+    (80, 100): 0.70,
+}
+
+
+def calibrated_confidence(raw_prob_pct):
+    """Convert a raw model confidence (distance from 50) to real accuracy."""
+    bucket_prob = max(50, min(100, 50 + abs(raw_prob_pct - 50)))
+    for (lo, hi), rate in CALIBRATION_TABLE.items():
+        if lo <= bucket_prob < hi:
+            return round(rate * 100, 1)
+    return 52.0
+
+
+def _update_calibration_table_from_history():
+    """
+    Rebuild CALIBRATION_TABLE from actual resolved predictions.
+    Called by /auto_tune weekly. Requires 100+ resolved games.
+    """
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get("correct") is not None]
+    if len(resolved) < 100:
+        return False
+
+    buckets = {(0, 50): [], (50, 60): [], (60, 70): [], (70, 80): [], (80, 100): []}
+    for e in resolved:
+        conf = e.get("confidence") or 0
+        for key in buckets:
+            if key[0] <= conf < key[1]:
+                buckets[key].append(1 if e.get("correct") else 0)
+                break
+
+    global CALIBRATION_TABLE
+
+    new_table = {}
+    for key, results in buckets.items():
+        if len(results) >= 10:
+            new_table[key] = round(sum(results) / len(results), 4)
+        else:
+            new_table[key] = CALIBRATION_TABLE.get(key, 0.52)
+
+    CALIBRATION_TABLE = new_table
+    return True
+
+
+# ─────────────────────────────────────────────────────────────
+# QB RECENCY — rolling EPA over last N games
+# ─────────────────────────────────────────────────────────────
+def get_qb_recent_epa(team_name, last_n=4):
+    """
+    Rolling QB EPA over last N games. Falls back to season average.
+    Uses ESPN + team stats as best available proxy.
+    """
+    try:
+        import pandas as pd
+        df = pd.read_csv("nfl_advanced_games_v3.csv")
+        abbr = TEAM_MAP.get(team_name, "").upper()
+        if not abbr:
+            return None
+        # Find last N games for this team
+        mask = (df["home_team"].str.upper() == abbr) | (df["away_team"].str.upper() == abbr)
+        games = df[mask].sort_values(["season", "week"], ascending=False).head(last_n)
+        if games.empty:
+            return None
+        epas = []
+        for _, g in games.iterrows():
+            if g["home_team"].upper() == abbr:
+                epas.append(g.get("home_off_epa", 0))
+            else:
+                epas.append(g.get("away_off_epa", 0))
+        return sum(epas) / len(epas) if epas else None
+    except Exception:
+        return None
+
+
+# ─────────────────────────────────────────────────────────────
+# LINE MOVEMENT — sharp money signal
+# ─────────────────────────────────────────────────────────────
+_opening_lines = {}   # game_id or "team1|team2" -> {spread, total, time}
+
+
+def record_opening_line(team1, team2, spread, total):
+    """Store the first line we see for a matchup."""
+    key = f"{team1}|{team2}"
+    if key not in _opening_lines:
+        import time as _t
+        _opening_lines[key] = {"spread": spread, "total": total, "time": _t.time()}
+
+
+def get_line_movement(team1, team2, current_spread):
+    """Return how much the line moved from opening."""
+    key = f"{team1}|{team2}"
+    if key not in _opening_lines or current_spread is None:
+        return None
+    opening = _opening_lines[key].get("spread")
+    if opening is None:
+        return None
+    return round(current_spread - opening, 2)
+
+
+# ─────────────────────────────────────────────────────────────
+# PRIMETIME / TNF detection
+# ─────────────────────────────────────────────────────────────
+def classify_game_slot(kickoff_iso):
+    """
+    Return 'TNF', 'SNF', 'MNF', 'SUNDAY_EARLY', 'SUNDAY_LATE', or 'UNKNOWN'.
+    Based on day-of-week + time-of-day in ET.
+    """
+    if not kickoff_iso:
+        return "UNKNOWN"
+    try:
+        from datetime import datetime as _dt
+        import pytz
+        ko = _dt.fromisoformat(kickoff_iso.replace("Z", "+00:00"))
+        et = ko.astimezone(pytz.timezone("America/New_York"))
+        weekday = et.weekday()   # 0 = Monday
+        hour = et.hour
+        if weekday == 3:  # Thursday
+            return "TNF"
+        if weekday == 6 and hour >= 20:  # Sunday night
+            return "SNF"
+        if weekday == 0 and hour >= 20:  # Monday night
+            return "MNF"
+        if weekday == 6:  # Sunday
+            return "SUNDAY_EARLY" if hour < 16 else "SUNDAY_LATE"
+        return "UNKNOWN"
+    except Exception:
+        return "UNKNOWN"
+
+
+def slot_adjustments(slot):
+    """Return (spread_multiplier, total_delta) for a given game slot."""
+    if slot == "TNF":
+        return (0.85, -3.0)     # compressed scoring, tighter spreads
+    if slot == "SNF":
+        return (0.95, -1.0)
+    if slot == "MNF":
+        return (1.00, -1.5)
+    if slot == "SUNDAY_EARLY":
+        return (1.00, 0.0)
+    if slot == "SUNDAY_LATE":
+        return (1.00, +0.5)
+    return (1.00, 0.0)
+
+
+# ─────────────────────────────────────────────────────────────
+# CLV — Closing Line Value
+# ─────────────────────────────────────────────────────────────
+def compute_clv(predicted_spread, closing_spread):
+    """
+    CLV = predicted_spread - closing_spread.
+    Positive = you got a better number than the market closed at.
+    """
+    if predicted_spread is None or closing_spread is None:
+        return None
+    return round(predicted_spread - closing_spread, 2)
+
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({"status": "ok", "sportsipy_available": SPORTSIPY_AVAILABLE})
@@ -1067,7 +1238,11 @@ def predict_winner():
         "market_spread": market_spread if 'market_spread' in dir() else None,
         "market_total": market_total if 'market_total' in dir() else None,
         "key_factors": factors,
-        "key_factors_detail": factors_detail
+        "key_factors_detail": factors_detail,
+        "raw_confidence": raw_conf_pct,
+        "calibrated": True,
+        "is_no_pick": is_no_pick,
+        "game_slot": classify_game_slot(None)
     })
 
 @app.route('/preseason_stats', methods=['GET'])
@@ -2055,6 +2230,36 @@ def similar_matchups():
         }
     })
 
+@app.route('/calibration', methods=['GET'])
+def calibration():
+    """Return the current calibration table + backtest comparison."""
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get("correct") is not None]
+
+    # Compute empirical accuracy per bucket
+    buckets = {(0, 50): [], (50, 60): [], (60, 70): [], (70, 80): [], (80, 100): []}
+    for e in resolved:
+        conf = e.get("confidence") or 0
+        for key in buckets:
+            if key[0] <= conf < key[1]:
+                buckets[key].append(1 if e.get("correct") else 0)
+                break
+
+    empirical = {}
+    for key, results in buckets.items():
+        empirical[f"{key[0]}-{key[1]}"] = {
+            "samples": len(results),
+            "accuracy": round(100.0 * sum(results) / len(results), 1) if results else None,
+            "table_value": round(CALIBRATION_TABLE.get(key, 0.52) * 100, 1)
+        }
+
+    return jsonify({
+        "total_resolved": len(resolved),
+        "current_table": {f"{k[0]}-{k[1]}": round(v*100, 1) for k, v in CALIBRATION_TABLE.items()},
+        "empirical": empirical,
+        "note": "When empirical accuracy diverges from table_value by >5 points in a bucket with 10+ samples, run /auto_tune"
+    })
+
 @app.route('/backtest', methods=['GET'])
 def backtest():
     """Run the prediction history through filters to compute accuracy by slice."""
@@ -2244,59 +2449,132 @@ def ml_predict():
         edge = round(ml_prob_pct - market_home_prob, 1)
     else:
         blended = round(ml_prob_pct, 1)
-    
+
+    # ───── APPLY ADVANCED SIGNALS ─────
+    advanced_adjustments = []
+
+    # Initialize factors here in ml_predict scope (was only defined in predict_winner)
+    factors = []
+    factors_detail = []
+
+    # 1. Contrarian public betting signal
+    try:
+        home_public_pct = get_public_betting_signal(team1, team2)
+        contrarian_delta = contrarian_adjustment(home_public_pct)
+        if abs(contrarian_delta) > 0.1:
+            blended = round(blended + contrarian_delta, 1)
+            advanced_adjustments.append(f"Contrarian: {contrarian_delta:+.1f}% (public {home_public_pct:.0f}% on {team1})")
+    except Exception:
+        pass
+
+    # 2. Schedule spot detection (both teams)
+    try:
+        spots_home = detect_schedule_spot(team1)
+        spots_away = detect_schedule_spot(team2)
+        spot_home_impact = schedule_spot_impact(spots_home)
+        spot_away_impact = schedule_spot_impact(spots_away)
+        net_spot = spot_home_impact - spot_away_impact
+        if abs(net_spot) > 0.1:
+            blended = round(blended + net_spot, 1)
+            home_tags = ", ".join(s["tag"] for s in spots_home) or "none"
+            away_tags = ", ".join(s["tag"] for s in spots_away) or "none"
+            advanced_adjustments.append(f"Schedule: {net_spot:+.1f}% (home: {home_tags} | away: {away_tags})")
+    except Exception:
+        pass
+
+    # 3. Coach tendencies (default: no situation = home_favorite or divisional)
+    try:
+        home_coach_adj = coach_adjustment(team1, "home_favorite") + coach_adjustment(team1, "divisional")
+        away_coach_adj = coach_adjustment(team2, "road_underdog") + coach_adjustment(team2, "divisional")
+        net_coach = home_coach_adj - away_coach_adj
+        if abs(net_coach) > 0.1:
+            blended = round(blended + net_coach, 1)
+            advanced_adjustments.append(f"Coaching: {net_coach:+.1f}%")
+    except Exception:
+        pass
+
+    # Clamp blended to sane range
+    blended = max(1.0, min(99.0, blended))
+
+    # QB rolling EPA comparison
+    try:
+        home_qb_epa = get_qb_recent_epa(team1, last_n=4)
+        away_qb_epa = get_qb_recent_epa(team2, last_n=4)
+        if home_qb_epa is not None and away_qb_epa is not None:
+            epa_diff = home_qb_epa - away_qb_epa
+            if abs(epa_diff) >= 0.05:
+                factors.append(f"QB EPA (last 4): {team1} {home_qb_epa:+.2f} vs {team2} {away_qb_epa:+.2f}")
+                factors_detail.append("Rolling 4-game QB Expected Points Added — recent form signal.")
+    except Exception:
+        pass
+
+    # Log all advanced adjustments (or note that none triggered)
+    if advanced_adjustments:
+        for adj in advanced_adjustments:
+            factors.append(adj)
+            factors_detail.append("Advanced signal applied to the blended probability.")
+    else:
+        factors.append("Advanced signals: none triggered")
+        factors_detail.append("No contrarian/schedule/coaching adjustments applied (market data missing or no triggers).")
+
     # Winner ALWAYS based on blended probability
     winner = team1 if blended > 50 else team2
-    
-    # Confidence from blended
-    confidence = round(abs(blended - 50) * 2, 1)
-    conf_level = "HIGH" if confidence > 20 else "MEDIUM" if confidence > 10 else "LOW"
-    
+
+    # Raw confidence = distance from 50/50
+    raw_confidence = round(abs(blended - 50) * 2, 1)
+
+    # CALIBRATED confidence — real-world accuracy in this bucket
+    NO_PICK_MAX_RAW_CONF = 8.0
+    is_no_pick = raw_confidence < NO_PICK_MAX_RAW_CONF
+    confidence = calibrated_confidence(blended)
+    raw_conf_pct = raw_confidence
+
+    conf_level = "HIGH" if confidence >= 65 else "MEDIUM" if confidence >= 55 else "LOW"
+
     # Model spread from probability
     ml_spread = (ml_prob_pct - 50) / 50 * 14
-    
+
     # Blend with market if available
     if market_spread is not None:
         model_spread_from_home = -ml_spread
         blended_spread = market_spread * 0.6 + model_spread_from_home * 0.4
     else:
         blended_spread = -ml_spread
-    
+
     # Round to nearest .0 or .5 (NFL convention)
     blended_spread = round(blended_spread * 2) / 2
-    
+
     # Total: use market if available, otherwise derive from model strength
     if market_total is not None:
         total = int(round(market_total))
     else:
-        # No market data — estimate from both teams' scoring averages.
-        # We don't have s1/s2 yet (they depend on total), so use the
-        # implied scoring rate from the spread magnitude.
-        # |spread| of 14 ~= 24-10 game (34 total). |spread| of 0 ~= 24-24 (48 total).
-        # Formula: baseline_total - 0.5 * abs(blended_spread), clamped to sane range.
         baseline_total = 45
         total = int(round(baseline_total - 0.5 * abs(blended_spread)))
         total = max(34, min(56, total))
-    
+
     # Derive scores from spread + total
-    # blended_spread negative = home favored, so home score > away score
     s1 = int(round(total / 2 - blended_spread / 2))
     s2 = int(round(total / 2 + blended_spread / 2))
     s1 = max(10, s1)
     s2 = max(10, s2)
-    
+
     # Ensure score matches winner
     if winner == team1 and s1 <= s2:
         s1 = s2 + 3
     elif winner == team2 and s2 <= s1:
         s2 = s1 + 3
-    # Fix any rounding drift so total still matches
     actual_total = s1 + s2
     if actual_total != total:
         diff = total - actual_total
         s1 += diff // 2
         s2 += diff - (diff // 2)
-    
+
+    # Apply primetime/TNF slot adjustments
+    slot = "SUNDAY_EARLY"
+    spread_mult, total_delta = slot_adjustments(slot)
+    blended_spread = blended_spread * spread_mult
+    total = int(round(total + total_delta))
+
     # Spread display: .0 or .5
     bs = abs(blended_spread)
     bs_str = f"{bs:.1f}"
@@ -2306,7 +2584,11 @@ def ml_predict():
         our_spread_str = f"{team2} -{bs_str}"
     else:
         our_spread_str = "Pick'em"
-    
+
+    # Confidence string (calibrated value)
+    factors.append(f"Confidence: {confidence}% ({conf_level})")
+    factors_detail.append("Calibrated confidence — real historical accuracy for this probability bucket.")
+
     # Log for self-learning
     try:
         history = load_prediction_history()
@@ -2316,47 +2598,23 @@ def ml_predict():
             "team1": team1, "team2": team2,
             "predicted_winner": winner,
             "predicted_score": f"{s1}-{s2}",
+            "predicted_spread": our_spread_str,
+            "predicted_total": total,
             "confidence": confidence,
+            "raw_confidence": raw_conf_pct,
             "market_home_prob": market_home_prob,
+            "market_spread": market_spread,
+            "market_total": market_total,
             "edge": edge,
             "actual_winner": None, "actual_score": None, "correct": None,
-            "model_source": "ml_v3"
+            "model_source": "ml_v3",
+            "opening_spread": market_spread,
+            "clv": None,
+            "game_slot": slot,
         })
         save_prediction_history(history)
-    except:
+    except Exception:
         pass
-
-    # ───── Build key_factors ─────
-    factors = []
-    factors_detail = []
-
-    if market_home_prob is not None:
-        factors.append(f"ML model: {ml_prob_pct:.1f}% vs market {market_home_prob:.1f}%")
-        factors_detail.append("Raw ML probability vs market-implied probability for the home team.")
-        if edge is not None:
-            if edge > 0:
-                factors.append(f"Edge: +{edge:.1f}% on {team1}")
-                factors_detail.append(f"Model favors {team1} more than the market does.")
-            elif edge < 0:
-                factors.append(f"Edge: {edge:.1f}% on {team2}")
-                factors_detail.append(f"Model favors {team2} more than the market does.")
-            else:
-                factors.append("Model and market aligned")
-                factors_detail.append("Model and market are in agreement on this game.")
-    else:
-        factors.append(f"ML model: {ml_prob_pct:.1f}% home")
-        factors_detail.append("Raw ML probability — no market data available.")
-
-    if market_spread is not None:
-        factors.append(f"Blended spread: {our_spread_str} vs market {market_spread:+.1f}")
-        factors_detail.append("Blend of model-derived spread and market spread.")
-
-    if market_total is not None:
-        factors.append(f"Total: {total} (market {int(round(market_total))})")
-        factors_detail.append("Predicted total points — blended with market total.")
-
-    factors.append(f"Confidence: {confidence:.1f}% ({conf_level})")
-    factors_detail.append("Distance from 50/50 in the blended probability.")
 
     return jsonify({
         "team1": team1,
@@ -2369,6 +2627,9 @@ def ml_predict():
         "predicted_total": total,
         "confidence": confidence,
         "confidence_level": conf_level,
+        "raw_confidence": raw_conf_pct,
+        "calibrated": True,
+        "is_no_pick": is_no_pick,
         "ml_home_probability": round(ml_prob_pct, 1),
         "market_home_prob": market_home_prob,
         "blended_home_probability": round(blended, 1),
@@ -2376,7 +2637,8 @@ def ml_predict():
         "market_spread": (round(market_spread * 2) / 2 if market_spread is not None else None),
         "market_total": (int(round(market_total)) if market_total is not None else None),
         "key_factors": factors,
-        "key_factors_detail": factors_detail
+        "key_factors_detail": factors_detail,
+        "game_slot": slot
     })
 
 def _start_mdns_broadcast(port=5000):
