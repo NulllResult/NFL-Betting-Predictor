@@ -57,6 +57,12 @@ data class MlPredictionResponse(
     val market_total: Double?,
     val confidence: Double?,
     val confidence_level: String?,
+    val raw_confidence: Double? = null,
+    val calibrated: Boolean? = null,
+    val is_no_pick: Boolean? = null,
+    val game_slot: String? = null,
+    val team1_win_probability: Double? = null,
+    val team2_win_probability: Double? = null,
     val key_factors: List<String>? = null,
     val key_factors_detail: List<String>? = null
 )
