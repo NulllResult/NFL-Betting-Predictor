@@ -2121,9 +2121,20 @@ def predict_with_market():
 @app.route('/prediction_log', methods=['GET'])
 def prediction_log():
     history = load_prediction_history()
-    recent = sorted(history, key=lambda x: x.get('timestamp', 0), reverse=True)[:50]
-    return jsonify({"log": recent, "total": len(history)})
-
+    resolved = [e for e in history if e.get("correct") is not None]
+    pending = [e for e in history if e.get("correct") is None]
+    recent_resolved = sorted(resolved, key=lambda x: x.get("timestamp", 0), reverse=True)[:25]
+    recent_pending = sorted(pending, key=lambda x: x.get("timestamp", 0), reverse=True)[:25]
+    combined = recent_resolved + recent_pending
+    combined.sort(key=lambda x: x.get("date", ""), reverse=True)
+    return jsonify({
+        "log": combined,
+        "total": len(history),
+        "resolved_count": len(resolved),
+        "pending_count": len(pending),
+        "correct_count": sum(1 for e in resolved if e.get("correct") is True),
+        "wrong_count": sum(1 for e in resolved if e.get("correct") is False),
+    })
 
 
 def get_closing_line(team1, team2):

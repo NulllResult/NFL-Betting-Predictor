@@ -24,17 +24,25 @@
             android:scaleType="fitCenter"
             android:layout_marginEnd="8dp" />
 
-        <TextView
-            android:id="@+id/scoreBanner"
+        <LinearLayout
+            android:id="@+id/scoreBannerContainer"
             android:layout_width="0dp"
             android:layout_height="36dp"
             android:layout_weight="1"
-            android:textColor="#FFB612"
-            android:textSize="12sp"
-            android:gravity="center_vertical"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:text="Loading scores..." />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/scoreBanner"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:textColor="#FFB612"
+                android:textSize="12sp"
+                android:gravity="center_vertical"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:text="Loading scores..." />
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
@@ -158,6 +166,7 @@
             android:textSize="11sp"
             android:layout_marginStart="4dp"
             android:backgroundTint="#1A1A1A" />
+
     </LinearLayout>
 
     <LinearLayout

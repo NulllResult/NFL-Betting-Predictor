@@ -40,7 +40,14 @@ data class PlayerPropsResponse(val player: String?, val team: String?, val props
 data class PreseasonStatsResponse(val stats: PlayerSeasonStats?)
 
 data class PredictionLogEntry(val date: String?, val team1: String?, val team2: String?, val predicted_winner: String?, val predicted_score: String?, val confidence: Double?, val actual_winner: String?, val actual_score: String?, val correct: Boolean?)
-data class PredictionLogResponse(val log: List<PredictionLogEntry>?, val total: Int?)
+data class PredictionLogResponse(
+    val log: List<PredictionLogEntry>?,
+    val total: Int?,
+    val resolved_count: Int? = null,
+    val pending_count: Int? = null,
+    val correct_count: Int? = null,
+    val wrong_count: Int? = null
+)
 
 data class MlPredictionResponse(
     val team1: String?,

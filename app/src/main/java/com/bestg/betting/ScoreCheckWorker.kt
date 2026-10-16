@@ -42,7 +42,7 @@ class ScoreCheckWorker(appContext: Context, params: WorkerParameters) : Worker(a
 
     override fun doWork(): Result {
         val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val enabled = prefs.getBoolean(KEY_NOTIF_ENABLED, false)
+        val enabled = prefs.getBoolean(KEY_NOTIF_ENABLED, true)
         if (!enabled) return Result.success()
 
         val serverIp = prefs.getString("server_ip", "10.0.0.60") ?: "10.0.0.60"

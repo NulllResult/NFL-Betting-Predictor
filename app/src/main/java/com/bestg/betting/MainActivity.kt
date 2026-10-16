@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playerSpinner: Spinner
     private lateinit var resultText: TextView
     private lateinit var scoreBanner: TextView
+    private lateinit var scoreBannerContainer: LinearLayout
     private lateinit var loadingIndicator: ProgressBar
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var gamesContainer: LinearLayout
@@ -99,11 +100,9 @@ class MainActivity : AppCompatActivity() {
         viewModel = androidx.lifecycle.ViewModelProvider(this)[MainViewModel::class.java]
         sharedPrefs = getSharedPreferences("NFL_Betting_Prefs", Context.MODE_PRIVATE)
 
-        // Apply saved theme preference
-        val savedTheme = sharedPrefs.getString("theme_mode", "dark") ?: "dark"
+        // Force dark theme permanently
         androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
-            if (savedTheme == "dark") androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
-            else androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
         )
         loadManualOverrides()
         favoriteTeams.addAll(sharedPrefs.getStringSet("favorite_teams", emptySet()) ?: emptySet())
@@ -115,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         playerSpinner = findViewById(R.id.playerSpinner)
         resultText = findViewById(R.id.resultText)
         scoreBanner = findViewById(R.id.scoreBanner)
+        scoreBannerContainer = findViewById(R.id.scoreBannerContainer)
         loadingIndicator = findViewById(R.id.loadingIndicator)
         swipeRefresh = findViewById(R.id.swipeRefresh)
         gamesContainer = findViewById(R.id.gamesContainer)
@@ -139,7 +139,6 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.testButton).setOnClickListener { testConnection() }
         findViewById<MaterialButton>(R.id.loadStatsButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setStatsMode() }
-        findViewById<MaterialButton>(R.id.loadPlayerButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setPlayerMode() }
         findViewById<MaterialButton>(R.id.predictButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setPredictMode() }
         findViewById<MaterialButton>(R.id.refreshAllButton).setOnClickListener {
             if (currentMode == "PREDICT" && gamesContainer.visibility == View.GONE) {
@@ -163,7 +162,7 @@ class MainActivity : AppCompatActivity() {
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
-            helpCycle = (helpCycle + 1) % 14
+            helpCycle = (helpCycle + 1) % 13
             when (helpCycle) {
                 0 -> showHelp()
                 1 -> showAccuracy()
@@ -183,8 +182,7 @@ class MainActivity : AppCompatActivity() {
                 9 -> showBacktest()
                 10 -> autoDetectServer()
                 11 -> toggleNotifications()
-                12 -> toggleTheme()
-                13 -> showServerIpDialog()
+                12 -> showServerIpDialog()
             }
             updateHelpButtonLabel()
         }
@@ -424,15 +422,47 @@ class MainActivity : AppCompatActivity() {
             scoreBanner.text = "No live games"
             return
         }
-        // Show 2 games at a time, separated by " | "
         val perPage = 2
         val totalPages = (scores.size + perPage - 1) / perPage
         val page = scorePage % totalPages
         val start = page * perPage
         val end = minOf(start + perPage, scores.size)
         val slice = scores.subList(start, end)
-        scoreBanner.text = slice.joinToString("  |  ") {
-            "${it.away} ${it.away_score}-${it.home_score} ${it.home} (${it.detail.ifEmpty { it.status }})"
+
+        // Build a horizontal LinearLayout with real team logos for each game
+        scoreBannerContainer.removeAllViews()
+        for ((i, game) in slice.withIndex()) {
+            if (i > 0) {
+                val sep = TextView(this)
+                sep.text = "  |  "
+                sep.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                sep.textSize = 12f
+                scoreBannerContainer.addView(sep)
+            }
+            // Away logo
+            val awayLogo = ImageView(this)
+            val sizePx = (20 * resources.displayMetrics.density).toInt()
+            awayLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
+            awayLogo.setImageResource(getTeamLogo(game.away))
+            awayLogo.scaleType = ImageView.ScaleType.FIT_CENTER
+            scoreBannerContainer.addView(awayLogo)
+
+            // Score text
+            val scoreTv = TextView(this)
+            scoreTv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} (${game.detail.ifEmpty { game.status }})"
+            scoreTv.setTextColor(ContextCompat.getColor(this, R.color.text_score_gold))
+            scoreTv.textSize = 12f
+            scoreTv.maxLines = 1
+            scoreTv.ellipsize = android.text.TextUtils.TruncateAt.END
+            scoreBannerContainer.addView(scoreTv)
+
+            // Home logo
+            val homeLogo = ImageView(this)
+            homeLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
+            homeLogo.setImageResource(getTeamLogo(game.home))
+            homeLogo.scaleType = ImageView.ScaleType.FIT_CENTER
+            homeLogo.setPadding(6, 0, 0, 0)
+            scoreBannerContainer.addView(homeLogo)
         }
     }
 
@@ -500,9 +530,11 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                val correctCount = allEntries.count { it.correct == true }
-                val wrongCount = allEntries.count { it.correct == false }
-                val pendingCount = allEntries.count { it.correct == null }
+                // Use server-provided counts when available
+                val resp = response.body()
+                val correctCount = resp?.correct_count ?: allEntries.count { it.correct == true }
+                val wrongCount = resp?.wrong_count ?: allEntries.count { it.correct == false }
+                val pendingCount = resp?.pending_count ?: allEntries.count { it.correct == null }
 
                 // Apply filter (display-only, data is untouched)
                 val entries = when (logFilter) {
@@ -612,9 +644,11 @@ class MainActivity : AppCompatActivity() {
                 val total = response.body()?.total ?: 0
                 if (allEntries.isEmpty()) return
 
-                val correctCount = allEntries.count { it.correct == true }
-                val wrongCount = allEntries.count { it.correct == false }
-                val pendingCount = allEntries.count { it.correct == null }
+                // Use server-provided counts when available
+                val resp = response.body()
+                val correctCount = resp?.correct_count ?: allEntries.count { it.correct == true }
+                val wrongCount = resp?.wrong_count ?: allEntries.count { it.correct == false }
+                val pendingCount = resp?.pending_count ?: allEntries.count { it.correct == null }
 
                 val entries = when (logFilter) {
                     "CORRECT" -> allEntries.filter { it.correct == true }
@@ -1659,7 +1693,7 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun toggleNotifications() {
-        val current = sharedPrefs.getBoolean("notif_enabled", false)
+        val current = sharedPrefs.getBoolean("notif_enabled", true)
         val next = !current
         sharedPrefs.edit().putBoolean("notif_enabled", next).apply()
 
