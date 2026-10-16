@@ -678,7 +678,22 @@ class MainActivity : AppCompatActivity() {
                     sb.append("==============================\n\n")
                     sb.append("${p?.predicted_winner ?: "?"} WINS\n\n")
                     sb.append("Predicted Score: ${p?.predicted_score ?: "N/A"}\n")
-                    sb.append("Spread: ${p?.predicted_spread ?: "N/A"}\n")
+                    // Calculate spread from predicted score to ensure consistency
+                    val pScore = p?.predicted_score
+                    val spreadText = if (pScore != null && pScore.contains("-")) {
+                        val parts = pScore.split("-")
+                        val s1 = parts[0].trim().toIntOrNull() ?: 0
+                        val s2 = parts[1].trim().toIntOrNull() ?: 0
+                        val diff = s1 - s2
+                        when {
+                            diff > 0 -> "${p?.team1 ?: "Team 1"} -$diff"
+                            diff < 0 -> "${p?.team2 ?: "Team 2"} -${-diff}"
+                            else -> "Pick 'Em"
+                        }
+                    } else {
+                        p?.predicted_spread ?: "N/A"
+                    }
+                    sb.append("Model Spread: $spreadText\n")
                     sb.append("Total: ${p?.predicted_total ?: "N/A"}\n\n")
                     sb.append("Blended Win Probability:\n")
                     sb.append("  ${team1}: ${p?.blended_home_probability ?: "?"}%\n")
