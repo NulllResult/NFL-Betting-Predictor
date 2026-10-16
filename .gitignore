@@ -1,20 +1,35 @@
-# Read, fix, and write the gitignore
-$content = Get-Content .gitignore
-$fixed = @()
-foreach ($line in $content) {
-    # Skip lines that block APK uploads
-    if ($line -match '^\*\.apk$' -or $line -match '^\*\.ap_$' -or $line -match "Don't upload APK") {
-        continue
-    }
-    $fixed += $line
-}
-$fixed | Set-Content .gitignore
+# Build artifacts
+.gradle/
+build/
+*/build/
+.gradle/**/*
+app/build/
+app/build.gradle.kts.backup*
 
-# Verify it's gone
-Select-String -Path .gitignore -Pattern "apk"
+# IDE
+.idea/
+*.iml
+.vscode/
 
-# Now add and push
-git add .gitignore
-git add -f NFL-Betting-Predictor.apk
-git commit -m "Add APK for direct download"
-git push
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Local config (contains machine-specific paths)
+local.properties
+
+# Temp files
+_fix.py
+_endpoint.py
+fix_predict.py
+betting_api_backup_*.py
+betting_api_before_*.py
+0
+50
+away_score
+
+# OS
+.DS_Store
+Thumbs.db
