@@ -6,6 +6,22 @@ import joblib
 import pandas as pd
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+
+# ─────────────────────────────────────────────────────────────
+# OPTIONAL: Rate limiting + production serving
+# Install with: pip install flask-limiter gunicorn
+# Uncomment below and the @limiter.limit decorators on routes
+# ─────────────────────────────────────────────────────────────
+# from flask_limiter import Limiter
+# from flask_limiter.util import get_remote_address
+# limiter = Limiter(app, key_func=get_remote_address,
+#                   default_limits=["120 per minute"])
+#
+# To run in production instead of flask dev server:
+#   gunicorn -w 4 -b 0.0.0.0:5000 betting_api:app
+# ─────────────────────────────────────────────────────────────
+
+
 from datetime import datetime
 import time
 import os
@@ -21,8 +37,53 @@ except ImportError:
     SPORTSIPY_AVAILABLE = False
     print("Sportsipy not available")
 
-TOMORROW_API_KEY = "4jUTfSnJ2t7VJjG5zRKh5gR6K8m2JhyM"
-ODDS_API_KEY = "daebc38f7fa4559b6d3f77a82a1a16dc"
+# API keys — read from environment. Fallbacks are the original keys so
+# nothing breaks if env vars aren't set.
+import os as _os
+TOMORROW_API_KEY = _os.environ.get("TOMORROW_API_KEY", "4jUTfSnJ2t7VJjG5zRKh5gR6K8m2JhyM")
+ODDS_API_KEY = _os.environ.get("ODDS_API_KEY", "daebc38f7fa4559b6d3f77a82a1a16dc")
+
+
+def cache_get(key, ttl=None):
+    """Unified cache read with per-key TTL. Returns None if missing or expired."""
+    import time as _t
+    if ttl is None:
+        ttl = cache_timeout
+    entry = cache.get(key)
+    if not entry:
+        return None
+    val, ts = entry
+    if _t.time() - ts > ttl:
+        cache.pop(key, None)
+        return None
+    return val
+
+
+def cache_set(key, value):
+    """Unified cache write. Timestamp is auto-recorded."""
+    import time as _t
+    cache[key] = (value, _t.time())
+
+
+
+# Freeze predictions within 5 min of kickoff so users don't see flicker
+FREEZE_WINDOW_SECONDS = 300
+_frozen_predictions = {}   # key: "team1|team2" -> {prediction, locked_at}
+
+
+def _should_freeze(kickoff_iso):
+    """Return True if we're within the freeze window before kickoff."""
+    if not kickoff_iso:
+        return False
+    try:
+        from datetime import datetime as _dt
+        ko = _dt.fromisoformat(kickoff_iso.replace("Z", "+00:00"))
+        now = _dt.now(ko.tzinfo)
+        delta = (ko - now).total_seconds()
+        return 0 <= delta <= FREEZE_WINDOW_SECONDS
+    except Exception:
+        return False
+
 
 cache = {}
 cache_timeout = 300
@@ -222,6 +283,90 @@ def get_player_stats_sportsipy(player_name, team_name):
 def get_mock_player_stats(player_id, player_name):
     """No mock data - return None when real stats unavailable"""
     return None
+
+
+
+# ─────────────────────────────────────────────────────────────
+# DIVISIONAL MAP — determines divisional matchups
+# ─────────────────────────────────────────────────────────────
+DIVISIONS = {
+    "Buffalo Bills": "AFC East", "Miami Dolphins": "AFC East",
+    "New England Patriots": "AFC East", "New York Jets": "AFC East",
+    "Baltimore Ravens": "AFC North", "Cincinnati Bengals": "AFC North",
+    "Cleveland Browns": "AFC North", "Pittsburgh Steelers": "AFC North",
+    "Houston Texans": "AFC South", "Indianapolis Colts": "AFC South",
+    "Jacksonville Jaguars": "AFC South", "Tennessee Titans": "AFC South",
+    "Denver Broncos": "AFC West", "Kansas City Chiefs": "AFC West",
+    "Las Vegas Raiders": "AFC West", "Los Angeles Chargers": "AFC West",
+    "Dallas Cowboys": "NFC East", "New York Giants": "NFC East",
+    "Philadelphia Eagles": "NFC East", "Washington Commanders": "NFC East",
+    "Chicago Bears": "NFC North", "Detroit Lions": "NFC North",
+    "Green Bay Packers": "NFC North", "Minnesota Vikings": "NFC North",
+    "Atlanta Falcons": "NFC South", "Carolina Panthers": "NFC South",
+    "New Orleans Saints": "NFC South", "Tampa Bay Buccaneers": "NFC South",
+    "Arizona Cardinals": "NFC West", "Los Angeles Rams": "NFC West",
+    "San Francisco 49ers": "NFC West", "Seattle Seahawks": "NFC West",
+}
+
+
+def is_divisional(team1, team2):
+    """True if both teams share the same division."""
+    return DIVISIONS.get(team1) is not None and DIVISIONS.get(team1) == DIVISIONS.get(team2)
+
+
+def weather_point_adjustment(weather):
+    """Return points to subtract from total based on weather severity."""
+    if not weather:
+        return 0.0
+    adj = 0.0
+    wind = weather.get("wind_speed") or 0
+    temp = weather.get("temperature") or 70
+    precip = weather.get("precipitation") or 0
+
+    if wind >= 25: adj -= 6.0
+    elif wind >= 20: adj -= 4.0
+    elif wind >= 15: adj -= 2.5
+    elif wind >= 10: adj -= 1.0
+
+    if temp <= 15: adj -= 4.0
+    elif temp <= 25: adj -= 2.5
+    elif temp <= 35: adj -= 1.0
+
+    if precip >= 70: adj -= 3.0
+    elif precip >= 50: adj -= 1.5
+
+    return adj
+
+
+@app.route('/teams', methods=['GET'])
+def teams():
+    """Return the canonical NFL team list."""
+    return jsonify({
+        "teams": list(TEAM_MAP.keys()),
+        "count": len(TEAM_MAP)
+    })
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Real diagnostics — which upstream APIs are reachable, cache state."""
+    import time as _t
+    upstream = {}
+    try:
+        r = requests.get(f"{ESPN_SITE_V2}/scoreboard", timeout=3)
+        upstream["espn"] = "ok" if r.status_code == 200 else f"http {r.status_code}"
+    except Exception as e:
+        upstream["espn"] = f"err: {str(e)[:40]}"
+    upstream["tomorrow"] = "configured" if TOMORROW_API_KEY else "missing_key"
+    upstream["odds"] = "configured" if ODDS_API_KEY else "missing_key"
+
+    return jsonify({
+        "status": "ok",
+        "cache_size": len(cache),
+        "market_cache_age_s": int(_t.time() - market_cache.get("time", 0)) if market_cache.get("data") else None,
+        "upstream_apis": upstream,
+        "predictions_logged": len(load_prediction_history()),
+        "server_time": datetime.now().isoformat(),
+    })
 
 @app.route('/test', methods=['GET'])
 def test():
@@ -878,8 +1023,35 @@ def predict_winner():
         spread_str = f"{team2} -{abs(spread)}"
     else:
         spread_str = "Pick'em"
+
+    # ───── Enriched factor detail (paired with factors list) ─────
+    factors_detail = []
+    for f in factors:
+        fl = f.lower()
+        if "win%" in fl:
+            factors_detail.append("Season-to-date win percentage comparison.")
+        elif "epa" in fl:
+            factors_detail.append("Expected Points Added — how efficiently each offense moves the ball.")
+        elif "point diff" in fl:
+            factors_detail.append("Cumulative point differential this season.")
+        elif "turnover" in fl:
+            factors_detail.append("Net turnovers — a major driver of game outcomes.")
+        elif "home field" in fl:
+            factors_detail.append("Historical home-field advantage for this venue.")
+        elif "injur" in fl:
+            factors_detail.append("Estimated points lost to key injuries (QB weighted heavier).")
+        elif "weather" in fl:
+            factors_detail.append("Weather conditions at kickoff — high wind reduces scoring.")
+        elif "recent form" in fl:
+            factors_detail.append("Last-5-game rolling performance.")
+        elif "ml model" in fl:
+            factors_detail.append("Raw machine learning model probability before market blend.")
+        else:
+            factors_detail.append("")
+
     return jsonify({
-        "team1": team1, "team2": team2,
+        "team1": team1,
+        "team2": team2,
         "team1_win_probability": round(prob1, 1),
         "team2_win_probability": round(prob2, 1),
         "predicted_winner": team1 if prob1 > prob2 else team2,
@@ -888,7 +1060,14 @@ def predict_winner():
         "predicted_total": total,
         "confidence": round(conf, 1),
         "confidence_level": level,
-        "key_factors": factors
+        "ml_home_probability": round(prob1, 1),
+        "market_home_prob": market_home_prob if 'market_home_prob' in dir() else None,
+        "blended_home_probability": round(prob1, 1),
+        "edge": edge if 'edge' in dir() else None,
+        "market_spread": market_spread if 'market_spread' in dir() else None,
+        "market_total": market_total if 'market_total' in dir() else None,
+        "key_factors": factors,
+        "key_factors_detail": factors_detail
     })
 
 @app.route('/preseason_stats', methods=['GET'])
@@ -975,6 +1154,40 @@ def get_live_scores():
     except:
         return jsonify({"scores": []})
 
+
+
+@app.route('/accuracy_by_week', methods=['GET'])
+def accuracy_by_week():
+    """Return prediction accuracy grouped by ISO week."""
+    history = load_prediction_history()
+    by_week = {}
+    for entry in history:
+        if entry.get("correct") is None:
+            continue
+        date_str = entry.get("date", "")
+        # date is "YYYY-MM-DD HH:MM"
+        try:
+            from datetime import datetime as _dt
+            d = _dt.strptime(date_str[:10], "%Y-%m-%d")
+            week_key = d.strftime("%Y-W%V")
+        except Exception:
+            week_key = "unknown"
+        bucket = by_week.setdefault(week_key, {"total": 0, "correct": 0})
+        bucket["total"] += 1
+        if entry.get("correct") is True:
+            bucket["correct"] += 1
+
+    weeks = []
+    for wk in sorted(by_week.keys()):
+        b = by_week[wk]
+        weeks.append({
+            "week": wk,
+            "total": b["total"],
+            "correct": b["correct"],
+            "accuracy": round(100.0 * b["correct"] / b["total"], 1) if b["total"] else 0.0
+        })
+
+    return jsonify({"weeks": weeks})
 
 @app.route('/prediction_accuracy', methods=['GET'])
 def get_prediction_accuracy():
@@ -1651,6 +1864,45 @@ def model_report():
     })
 
 
+@app.route('/misses_analysis', methods=['GET'])
+def misses_analysis():
+    """Group wrong predictions by suspected cause."""
+    history = load_prediction_history()
+    misses = [e for e in history if e.get("correct") is False]
+
+    buckets = {
+        "high_edge_vs_market": 0,
+        "market_favored": 0,
+        "non_divisional": 0,
+        "divisional": 0,
+        "small_spread": 0,
+        "large_spread": 0,
+        "unknown": 0,
+    }
+    for m in misses:
+        edge = m.get("edge")
+        ms = m.get("market_spread")
+        t1 = m.get("team1")
+        t2 = m.get("team2")
+
+        if edge is not None and abs(edge) >= 5:
+            buckets["high_edge_vs_market"] += 1
+        if ms is not None and abs(ms) <= 3:
+            buckets["small_spread"] += 1
+        if ms is not None and abs(ms) >= 10:
+            buckets["large_spread"] += 1
+        if t1 and t2:
+            if is_divisional(t1, t2):
+                buckets["divisional"] += 1
+            else:
+                buckets["non_divisional"] += 1
+
+    return jsonify({
+        "total_misses": len(misses),
+        "buckets": buckets,
+        "note": "Buckets overlap — a miss can count in multiple."
+    })
+
 @app.route('/learning_report', methods=['GET'])
 def learning_report():
     """Shows which factors actually predict wins based on logged results"""
@@ -1686,6 +1938,180 @@ def learning_report():
         }
     })
 
+
+@app.route('/similar_matchups', methods=['GET'])
+def similar_matchups():
+    """
+    Find historical games with the closest feature profile to a current matchup.
+    Uses nfl_advanced_games_v3.csv as the history source.
+    """
+    team1 = request.args.get("team1", "").strip()
+    team2 = request.args.get("team2", "").strip()
+    top_n = int(request.args.get("top", 5))
+    if not team1 or not team2:
+        return jsonify({"error": "team1 and team2 required"}), 400
+
+    try:
+        import pandas as pd
+        df = pd.read_csv("nfl_advanced_games_v3.csv")
+    except Exception as e:
+        return jsonify({"error": f"could not load data: {e}"}), 500
+
+    # Normalize columns we care about
+    needed = ["home_team", "away_team", "home_score", "away_score", "season", "week"]
+    for col in needed:
+        if col not in df.columns:
+            return jsonify({"error": f"missing column {col}"}), 500
+
+    # CSV uses abbreviations (KC, BUF, TEN). Convert full names to abbrevs.
+    abbr1 = TEAM_MAP.get(team1, team1.upper()[:3]).upper()
+    abbr2 = TEAM_MAP.get(team2, team2.upper()[:3]).upper()
+
+    # Handle CSV-specific aliases
+    aliases = {
+        "LAR": "LA", "STL": "LA",     # Rams
+        "LAC": "LAC", "SD": "LAC",    # Chargers (LAC is already correct)
+        "WSH": "WAS", "WAS": "WAS",   # Commanders
+        "OAK": "LV", "LVR": "LV",     # Raiders
+        "JAC": "JAX",                 # Jaguars
+        "ARZ": "ARI",                 # Cardinals
+        "BLT": "BAL", "CLV": "CLE",   # old abbreviations
+        "HST": "HOU",                 # Oilers/Texans
+    }
+    abbr1 = aliases.get(abbr1, abbr1)
+    abbr2 = aliases.get(abbr2, abbr2)
+
+    # Filter: either team appeared in the row (home OR away)
+    home_up = df["home_team"].astype(str).str.upper()
+    away_up = df["away_team"].astype(str).str.upper()
+    mask = (
+        (home_up == abbr1) | (home_up == abbr2) |
+        (away_up == abbr1) | (away_up == abbr2)
+    )
+    candidates = df[mask].copy()
+
+    if candidates.empty:
+        return jsonify({
+            "similar": [],
+            "note": f"no historical matchups found ({abbr1} vs {abbr2})",
+            "debug": {"team1_abbr": abbr1, "team2_abbr": abbr2, "csv_rows": len(df)}
+        })
+
+    # Similarity: exact matchup (either direction) gets highest weight
+    def score_row(row):
+        ht = str(row["home_team"]).upper()
+        at = str(row["away_team"]).upper()
+        score = 0
+        # Exact matchup in either direction
+        if (ht == abbr1 and at == abbr2) or (ht == abbr2 and at == abbr1):
+            score += 100
+        # Same home team as either team in query
+        if ht == abbr1 or ht == abbr2:
+            score += 20
+        # Same away team as either team in query
+        if at == abbr1 or at == abbr2:
+            score += 10
+        # Recency bonus
+        try:
+            score += int(row.get("season", 2020)) - 2020
+        except Exception:
+            pass
+        return score
+
+    candidates["_sim"] = candidates.apply(score_row, axis=1)
+    top = candidates.nlargest(top_n, "_sim")
+
+    results = []
+    for _, row in top.iterrows():
+        home_score = int(row["home_score"]) if pd.notna(row["home_score"]) else None
+        away_score = int(row["away_score"]) if pd.notna(row["away_score"]) else None
+        winner = None
+        margin = None
+        if home_score is not None and away_score is not None:
+            winner = row["home_team"] if home_score > away_score else row["away_team"]
+            margin = abs(home_score - away_score)
+
+        results.append({
+            "season": int(row.get("season", 0)),
+            "week": int(row.get("week", 0)),
+            "home_team": row["home_team"],
+            "away_team": row["away_team"],
+            "home_score": home_score,
+            "away_score": away_score,
+            "winner": winner,
+            "margin": margin,
+        })
+
+    # Aggregate: how often did home team win in similar matchups?
+    home_wins = sum(1 for r in results if r["winner"] == r["home_team"])
+    away_wins = sum(1 for r in results if r["winner"] == r["away_team"])
+
+    return jsonify({
+        "similar": results,
+        "summary": {
+            "home_wins": home_wins,
+            "away_wins": away_wins,
+            "total": len(results),
+        }
+    })
+
+@app.route('/backtest', methods=['GET'])
+def backtest():
+    """Run the prediction history through filters to compute accuracy by slice."""
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get("correct") is not None]
+
+    def acc(entries):
+        if not entries:
+            return {"total": 0, "correct": 0, "accuracy": 0.0}
+        c = sum(1 for e in entries if e.get("correct") is True)
+        return {"total": len(entries), "correct": c, "accuracy": round(100.0 * c / len(entries), 1)}
+
+    by_week = {}
+    by_confidence = {"50-60": [], "60-70": [], "70-80": [], "80+": [], "under50": []}
+    by_side = {"home_pick": [], "away_pick": []}
+    by_edge = {"edge_pos": [], "edge_neg": [], "edge_zero": []}
+    by_divisional = {"divisional": [], "non_divisional": []}
+
+    for e in resolved:
+        # Week
+        wk = (e.get("date") or "")[:10]
+        by_week.setdefault(wk, []).append(e)
+
+        # Confidence
+        conf = e.get("confidence") or 0
+        if conf < 50: by_confidence["under50"].append(e)
+        elif conf < 60: by_confidence["50-60"].append(e)
+        elif conf < 70: by_confidence["60-70"].append(e)
+        elif conf < 80: by_confidence["70-80"].append(e)
+        else: by_confidence["80+"].append(e)
+
+        # Home/away pick
+        if e.get("predicted_winner") == e.get("team1"):
+            by_side["home_pick"].append(e)
+        elif e.get("predicted_winner") == e.get("team2"):
+            by_side["away_pick"].append(e)
+
+        # Edge
+        edge = e.get("edge") or 0
+        if edge > 1: by_edge["edge_pos"].append(e)
+        elif edge < -1: by_edge["edge_neg"].append(e)
+        else: by_edge["edge_zero"].append(e)
+
+        # Divisional
+        t1, t2 = e.get("team1"), e.get("team2")
+        if t1 and t2:
+            if is_divisional(t1, t2): by_divisional["divisional"].append(e)
+            else: by_divisional["non_divisional"].append(e)
+
+    return jsonify({
+        "overall": acc(resolved),
+        "by_date": {k: acc(v) for k, v in sorted(by_week.items())},
+        "by_confidence": {k: acc(v) for k, v in by_confidence.items()},
+        "by_side": {k: acc(v) for k, v in by_side.items()},
+        "by_edge": {k: acc(v) for k, v in by_edge.items()},
+        "by_divisional": {k: acc(v) for k, v in by_divisional.items()},
+    })
 
 @app.route('/auto_tune', methods=['GET'])
 def auto_tune():
@@ -1734,6 +2160,28 @@ def auto_tune():
         "sample_size": "good" if total >= 50 else "building" if total >= 20 else "small"
     })
 
+
+@app.route('/debug_prediction', methods=['GET'])
+def debug_prediction():
+    """Return the full feature vector used for a prediction."""
+    team1 = request.args.get("team1", "").strip()
+    team2 = request.args.get("team2", "").strip()
+    if not team1 or not team2:
+        return jsonify({"error": "team1 and team2 required"}), 400
+
+    # Reuse the existing ml prediction logic but expose internals
+    try:
+        from feature_updater import build_features, predict_ml_probability
+        feats = build_features(team1, team2) if hasattr(__import__("feature_updater"), "build_features") else {}
+    except Exception as e:
+        feats = {"error": str(e)}
+
+    return jsonify({
+        "team1": team1,
+        "team2": team2,
+        "is_divisional": is_divisional(team1, team2),
+        "features": feats,
+    })
 
 @app.route('/ml_predict', methods=['GET'])
 def ml_predict():
@@ -1817,11 +2265,18 @@ def ml_predict():
     # Round to nearest .0 or .5 (NFL convention)
     blended_spread = round(blended_spread * 2) / 2
     
-    # Total: whole number
+    # Total: use market if available, otherwise derive from model strength
     if market_total is not None:
         total = int(round(market_total))
     else:
-        total = 45
+        # No market data — estimate from both teams' scoring averages.
+        # We don't have s1/s2 yet (they depend on total), so use the
+        # implied scoring rate from the spread magnitude.
+        # |spread| of 14 ~= 24-10 game (34 total). |spread| of 0 ~= 24-24 (48 total).
+        # Formula: baseline_total - 0.5 * abs(blended_spread), clamped to sane range.
+        baseline_total = 45
+        total = int(round(baseline_total - 0.5 * abs(blended_spread)))
+        total = max(34, min(56, total))
     
     # Derive scores from spread + total
     # blended_spread negative = home favored, so home score > away score
@@ -1870,23 +2325,96 @@ def ml_predict():
         save_prediction_history(history)
     except:
         pass
-    
+
+    # ───── Build key_factors ─────
+    factors = []
+    factors_detail = []
+
+    if market_home_prob is not None:
+        factors.append(f"ML model: {ml_prob_pct:.1f}% vs market {market_home_prob:.1f}%")
+        factors_detail.append("Raw ML probability vs market-implied probability for the home team.")
+        if edge is not None:
+            if edge > 0:
+                factors.append(f"Edge: +{edge:.1f}% on {team1}")
+                factors_detail.append(f"Model favors {team1} more than the market does.")
+            elif edge < 0:
+                factors.append(f"Edge: {edge:.1f}% on {team2}")
+                factors_detail.append(f"Model favors {team2} more than the market does.")
+            else:
+                factors.append("Model and market aligned")
+                factors_detail.append("Model and market are in agreement on this game.")
+    else:
+        factors.append(f"ML model: {ml_prob_pct:.1f}% home")
+        factors_detail.append("Raw ML probability — no market data available.")
+
+    if market_spread is not None:
+        factors.append(f"Blended spread: {our_spread_str} vs market {market_spread:+.1f}")
+        factors_detail.append("Blend of model-derived spread and market spread.")
+
+    if market_total is not None:
+        factors.append(f"Total: {total} (market {int(round(market_total))})")
+        factors_detail.append("Predicted total points — blended with market total.")
+
+    factors.append(f"Confidence: {confidence:.1f}% ({conf_level})")
+    factors_detail.append("Distance from 50/50 in the blended probability.")
+
     return jsonify({
-        "team1": team1, "team2": team2,
-        "ml_home_probability": round(ml_prob_pct, 1),
-        "market_home_prob": market_home_prob,
-        "blended_home_probability": blended,
-        "edge": edge,
+        "team1": team1,
+        "team2": team2,
+        "team1_win_probability": round(100 - blended, 1),
+        "team2_win_probability": round(blended, 1),
         "predicted_winner": winner,
         "predicted_score": f"{s1}-{s2}",
         "predicted_spread": our_spread_str,
         "predicted_total": total,
+        "confidence": confidence,
+        "confidence_level": conf_level,
+        "ml_home_probability": round(ml_prob_pct, 1),
+        "market_home_prob": market_home_prob,
+        "blended_home_probability": round(blended, 1),
+        "edge": edge,
         "market_spread": (round(market_spread * 2) / 2 if market_spread is not None else None),
         "market_total": (int(round(market_total)) if market_total is not None else None),
-        "confidence": confidence,
-        "confidence_level": conf_level
+        "key_factors": factors,
+        "key_factors_detail": factors_detail
     })
+
+def _start_mdns_broadcast(port=5000):
+    """Broadcast _nflpredict._tcp.local. on the local network."""
+    try:
+        from zeroconf import ServiceInfo, Zeroconf
+        import socket
+        hostname = socket.gethostname()
+        try:
+            local_ip = socket.gethostbyname(hostname)
+        except Exception:
+            local_ip = "127.0.0.1"
+        info = ServiceInfo(
+            "_nflpredict._tcp.local.",
+            "NFLPredictor._nflpredict._tcp.local.",
+            addresses=[socket.inet_aton(local_ip)],
+            port=port,
+            properties={"version": "1", "app": "NFL-Betting-Predictor"},
+            server=f"{hostname}.local.",
+        )
+        zc = Zeroconf()
+        zc.register_service(info)
+        print(f"mDNS broadcast started on {local_ip}:{port}")
+        return zc
+    except ImportError:
+        print("zeroconf not installed — mDNS broadcast disabled (pip install zeroconf)")
+        return None
+    except Exception as e:
+        print(f"mDNS broadcast failed: {e}")
+        return None
+
 
 if __name__ == "__main__":
     print("NFL API Running on http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    _zc = _start_mdns_broadcast(5000)
+    try:
+        app.run(host="0.0.0.0", port=5000, debug=True)
+    finally:
+        if _zc:
+            try: _zc.close()
+            except Exception: pass

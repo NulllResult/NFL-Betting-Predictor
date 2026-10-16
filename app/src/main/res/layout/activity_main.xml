@@ -4,24 +4,38 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="8dp"
-    android:background="#1a1a2e">
+    android:background="#0B0F19">
 
-    <TextView
-        android:id="@+id/scoreBanner"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:background="#16213e"
-        android:textColor="#FFD700"
-        android:textSize="13sp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:singleLine="true"
-        android:ellipsize="marquee"
-        android:marqueeRepeatLimit="marquee_forever"
-        android:focusable="true"
-        android:focusableInTouchMode="true"
-        android:paddingStart="8dp"
+        android:background="#0B0F19"
+        android:paddingStart="6dp"
         android:paddingEnd="8dp"
-        android:text="Loading scores..." />
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/logo_pit"
+            android:scaleType="fitCenter"
+            android:layout_marginEnd="8dp" />
+
+        <TextView
+            android:id="@+id/scoreBanner"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:textColor="#FFB612"
+            android:textSize="12sp"
+            android:gravity="center_vertical"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:text="Loading scores..." />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/spinnersRow"
@@ -69,7 +83,7 @@
         <ScrollView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#16213e"
+            android:background="#1A1A1A"
             android:padding="8dp">
 
             <TextView
@@ -91,7 +105,7 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:layout_marginTop="4dp"
-        android:background="#0a0e1a"
+        android:background="#000000"
         android:padding="4dp"
         android:visibility="visible">
 
@@ -123,7 +137,7 @@
             android:layout_weight="1"
             android:text="TEST"
             android:textSize="11sp"
-            android:backgroundTint="#0f3460" />
+            android:backgroundTint="#1A1A1A" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/loadStatsButton"
@@ -133,7 +147,7 @@
             android:text="STATS"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#0f3460" />
+            android:backgroundTint="#1A1A1A" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/loadPlayerButton"
@@ -143,7 +157,7 @@
             android:text="PLAYER"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#0f3460" />
+            android:backgroundTint="#1A1A1A" />
     </LinearLayout>
 
     <LinearLayout
@@ -159,7 +173,7 @@
             android:layout_weight="1"
             android:text="PREDICT"
             android:textSize="11sp"
-            android:backgroundTint="#0f3460" />
+            android:backgroundTint="#1A1A1A" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/refreshAllButton"
@@ -169,7 +183,7 @@
             android:text="REFRESH"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#0f3460" />
+            android:backgroundTint="#1A1A1A" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/clearButton"
@@ -179,7 +193,7 @@
             android:text="CLEAR"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#0f3460" />
+            android:backgroundTint="#1A1A1A" />
     </LinearLayout>
 
     <LinearLayout
@@ -193,9 +207,9 @@
             android:id="@+id/helpButton"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:text="HELP (Long Press for Settings)"
+            android:text="HELP \u2192"
             android:textSize="11sp"
-            android:backgroundTint="#e94560" />
+            android:backgroundTint="#FFB612" />
     </LinearLayout>
 
 </LinearLayout>
