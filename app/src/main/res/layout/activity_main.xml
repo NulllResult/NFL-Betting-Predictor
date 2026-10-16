@@ -6,39 +6,31 @@
     android:padding="8dp"
     android:background="#0B0F19">
 
+    <!-- Score banner: horizontal container that gets populated with logos + text at runtime -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#0B0F19"
+        android:background="#1A1A1A"
         android:paddingStart="6dp"
         android:paddingEnd="8dp"
         android:paddingTop="4dp"
         android:paddingBottom="4dp">
 
-        <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@drawable/logo_pit"
-            android:scaleType="fitCenter"
-            android:layout_marginEnd="8dp" />
-
         <LinearLayout
             android:id="@+id/scoreBannerContainer"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="36dp"
-            android:layout_weight="1"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical" />
 
-            <TextView
-                android:id="@+id/scoreBanner"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:visibility="gone"
-                android:text="Loading scores..." />
-        </LinearLayout>
+        <TextView
+            android:id="@+id/scoreBanner"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:text="Loading scores..." />
     </LinearLayout>
 
     <LinearLayout
@@ -128,6 +120,7 @@
         </ScrollView>
     </LinearLayout>
 
+    <!-- Top row: TEST / STATS / PLAYER -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -162,9 +155,9 @@
             android:textSize="11sp"
             android:layout_marginStart="4dp"
             android:backgroundTint="#1A1A1A" />
-
     </LinearLayout>
 
+    <!-- Bottom row: PREDICT / REFRESH / CLEAR -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -201,6 +194,7 @@
             android:backgroundTint="#1A1A1A" />
     </LinearLayout>
 
+    <!-- HELP button -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -212,7 +206,7 @@
             android:id="@+id/helpButton"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:text="HELP \u2192"
+            android:text="HELP →"
             android:textSize="11sp"
             android:backgroundTint="#FFB612" />
     </LinearLayout>
