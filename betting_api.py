@@ -540,6 +540,121 @@ def compute_clv(predicted_spread, closing_spread):
 
 
 
+
+# ─────────────────────────────────────────────────────────────
+# DRIFT DETECTION
+# Alerts when rolling accuracy drops significantly below baseline.
+# ─────────────────────────────────────────────────────────────
+def detect_drift(window=30, threshold_pct=10.0):
+    """
+    Compare rolling N-game accuracy vs lifetime baseline.
+    Returns drift flag + details if rolling is > threshold below baseline.
+    """
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get("correct") is not None]
+    if len(resolved) < window + 10:
+        return {
+            "status": "need_more_data",
+            "resolved": len(resolved),
+            "needed": window + 10
+        }
+
+    # Sort by resolution timestamp (fallback to date string)
+    def _key(e):
+        return e.get("resolved_at") or 0
+    resolved.sort(key=_key)
+
+    rolling = resolved[-window:]
+    baseline = resolved[:-window]
+
+    roll_acc = 100.0 * sum(1 for e in rolling if e.get("correct")) / len(rolling)
+    base_acc = 100.0 * sum(1 for e in baseline if e.get("correct")) / len(baseline) if baseline else 0.0
+
+    drift = roll_acc < (base_acc - threshold_pct)
+
+    return {
+        "status": "drift" if drift else "healthy",
+        "rolling_window": window,
+        "rolling_accuracy": round(roll_acc, 1),
+        "baseline_accuracy": round(base_acc, 1),
+        "gap": round(base_acc - roll_acc, 1),
+        "threshold": threshold_pct,
+        "message": f"Model has dropped {round(base_acc - roll_acc, 1)} points over last {window} games" if drift else "No drift detected"
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# ADAPTIVE BLENDING
+# Learns optimal model/market weight from historical performance.
+# ─────────────────────────────────────────────────────────────
+def get_adaptive_blend_weight():
+    """
+    Return the weight to give the market (0.0-1.0) based on which has
+    been more accurate recently.
+    - If market is 5% more accurate than model: weight 0.70 to market
+    - If model is 5% more accurate: weight 0.35 to market (model-favored)
+    - Default: 0.50 (equal blend)
+    """
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get("correct") is not None]
+    # Only count games where market data was available
+    market_games = [e for e in resolved if e.get("market_correct") is not None]
+    if len(market_games) < 30:
+        return 0.50   # not enough data — use default
+
+    model_acc = 100.0 * sum(1 for e in market_games if e.get("correct")) / len(market_games)
+    market_acc = 100.0 * sum(1 for e in market_games if e.get("market_correct")) / len(market_games)
+
+    gap = model_acc - market_acc
+    if gap >= 8:
+        return 0.30   # model is much better — trust it more
+    if gap >= 3:
+        return 0.40
+    if gap <= -8:
+        return 0.75   # market is much better — trust it more
+    if gap <= -3:
+        return 0.65
+    return 0.50
+
+
+# ─────────────────────────────────────────────────────────────
+# TEAM BIAS TRACKING
+# Which teams does the model systematically misjudge?
+# ─────────────────────────────────────────────────────────────
+def get_team_bias_report(min_games=3):
+    """
+    Return per-team accuracy for the model. Teams with 0-N records
+    are candidates for model bias / stale data.
+    """
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get("correct") is not None]
+
+    teams = {}   # team_name -> [correct_count, total_count]
+    for e in resolved:
+        winner = e.get("predicted_winner")
+        if not winner:
+            continue
+        teams.setdefault(winner, []).append(1 if e.get("correct") else 0)
+
+    report = []
+    for team, results in teams.items():
+        if len(results) < min_games:
+            continue
+        correct = sum(results)
+        total = len(results)
+        acc = 100.0 * correct / total
+        report.append({
+            "team": team,
+            "correct": correct,
+            "total": total,
+            "accuracy": round(acc, 1),
+            "bias": "cold" if acc < 40 else "hot" if acc > 75 else "normal"
+        })
+
+    report.sort(key=lambda x: x["accuracy"])
+    return report
+
+
 # ─────────────────────────────────────────────────────────────
 # AUTO-RESOLVE DAEMON
 # Runs check_results_internal() every 30 minutes in a background
@@ -890,8 +1005,8 @@ def predict_winner():
     
     try:
         # Load ML models
-        rf = joblib.load('ml_models/random_forest.pkl')
-        gb = joblib.load('ml_models/gradient_boosting.pkl')
+        rf = joblib.load('ml_models/random_forest_v5.pkl')
+        gb = joblib.load('ml_models/gradient_boosting_v5.pkl')
         strengths = joblib.load('ml_models/team_strengths.pkl')
     except:
         rf = gb = None
@@ -2434,6 +2549,33 @@ def similar_matchups():
         }
     })
 
+@app.route('/drift', methods=['GET'])
+def drift_check():
+    """Check if rolling accuracy has dropped significantly."""
+    return jsonify(detect_drift())
+
+
+@app.route('/blend_weight', methods=['GET'])
+def blend_weight():
+    """Current adaptive model/market blend weight."""
+    w = get_adaptive_blend_weight()
+    return jsonify({
+        "market_weight": w,
+        "model_weight": round(1.0 - w, 2),
+        "note": "Higher market weight = trusting sportsbooks more than the model"
+    })
+
+
+@app.route('/team_bias', methods=['GET'])
+def team_bias():
+    """Which teams the model systematically misjudges."""
+    min_g = int(request.args.get('min_games', 3))
+    return jsonify({
+        "min_games": min_g,
+        "teams": get_team_bias_report(min_g)
+    })
+
+
 @app.route('/calibration', methods=['GET'])
 def calibration():
     """Return the current calibration table + backtest comparison."""
@@ -2646,10 +2788,12 @@ def ml_predict():
     except:
         pass
     
-    # Blend: 50/50 when we have both, otherwise use whichever is available
+    # Blend: use adaptive weight from /blend_weight, defaults to 50/50
     ml_prob_pct = prob_home * 100
     if market_home_prob is not None:
-        blended = round(ml_prob_pct * 0.5 + market_home_prob * 0.5, 1)
+        market_weight = get_adaptive_blend_weight()
+        model_weight = 1.0 - market_weight
+        blended = round(ml_prob_pct * model_weight + market_home_prob * market_weight, 1)
         edge = round(ml_prob_pct - market_home_prob, 1)
     else:
         blended = round(ml_prob_pct, 1)
