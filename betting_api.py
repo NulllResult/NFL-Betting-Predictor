@@ -1005,8 +1005,8 @@ def predict_winner():
     
     try:
         # Load ML models
-        rf = joblib.load('ml_models/random_forest_v5.pkl')
-        gb = joblib.load('ml_models/gradient_boosting_v5.pkl')
+        rf = joblib.load('ml_models/random_forest_v6.pkl')
+        gb = joblib.load('ml_models/gradient_boosting_v6.pkl')
         strengths = joblib.load('ml_models/team_strengths.pkl')
     except:
         rf = gb = None
@@ -1601,24 +1601,45 @@ def live_prediction():
 
 @app.route('/odds', methods=['GET'])
 def get_odds():
-    """Try to fetch real odds from ESPN"""
-    url = f"{ESPN_SITE_V2}/scoreboard?dates=2026"
+    """Fetch real odds from The Odds API"""
     try:
-        data = requests.get(url, timeout=10).json()
+        url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
+        params = {
+            "apiKey": ODDS_API_KEY,
+            "regions": "us",
+            "markets": "spreads,totals,h2h",
+            "oddsFormat": "american",
+        }
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return jsonify({"odds": [], "error": f"api returned {r.status_code}"})
         results = []
-        for event in data.get('events', []):
-            comp = event.get('competitions', [{}])[0]
-            odds_list = comp.get('odds', [])
-            if not odds_list:
-                continue
-            odds = odds_list[0]
+        for game in r.json():
+            home = game.get("home_team", "")
+            away = game.get("away_team", "")
+            # Aggregate across bookmakers
+            spreads_h, spreads_a, totals, h_mls, a_mls = [], [], [], [], []
+            for bk in game.get("bookmakers", []):
+                for mk in bk.get("markets", []):
+                    for o in mk.get("outcomes", []):
+                        if mk["key"] == "spreads":
+                            if o["name"] == home: spreads_h.append(o.get("point"))
+                            else: spreads_a.append(o.get("point"))
+                        elif mk["key"] == "totals":
+                            totals.append(o.get("point"))
+                        elif mk["key"] == "h2h":
+                            if o["name"] == home: h_mls.append(o.get("price"))
+                            else: a_mls.append(o.get("price"))
+            def avg(lst):
+                nums = [x for x in lst if x is not None]
+                return round(sum(nums) / len(nums), 1) if nums else None
             results.append({
-                "game": event.get('shortName', ''),
-                "provider": odds.get('provider', {}).get('name', 'ESPN'),
-                "spread": odds.get('details', 'N/A'),
-                "over_under": odds.get('overUnder', 'N/A'),
-                "home_ml": odds.get('homeTeamOdds', {}).get('moneyLine', 'N/A'),
-                "away_ml": odds.get('awayTeamOdds', {}).get('moneyLine', 'N/A')
+                "game": f"{away} @ {home}",
+                "provider": "TheOddsAPI",
+                "spread": f"{home} {avg(spreads_h)}" if avg(spreads_h) is not None else "N/A",
+                "over_under": avg(totals),
+                "home_ml": avg(h_mls),
+                "away_ml": avg(a_mls),
             })
         return jsonify({"odds": results})
     except Exception as e:

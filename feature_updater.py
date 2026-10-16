@@ -15,9 +15,9 @@ TEAM_ABBR_MAP = {
 }
 
 # Model files
-MODEL_PATH = 'ml_models/random_forest_v5.pkl'
-FEATURE_COLS_PATH = 'ml_models/feature_cols_v5.pkl'
-GAMES_CSV = 'nfl_advanced_games_v5.csv'
+MODEL_PATH = 'ml_models/random_forest_v6.pkl'
+FEATURE_COLS_PATH = 'ml_models/feature_cols_v6.pkl'
+GAMES_CSV = 'nfl_advanced_games_v6.csv'
 
 _games_cache = None
 
@@ -35,44 +35,53 @@ def load_games():
     return _games_cache
 
 
-def compute_rolling_features(team, games_df):
+def compute_rolling_features(team_abbr, games_df):
     """
     Compute rolling 4-game features for a team based on their most recent 4 games.
-    Uses 'home' prefix if team is the home team in the current matchup,
-    'away' prefix otherwise. Returns a dict keyed by home_*/away_* names.
+    Accepts the abbreviation (KC, BUF, etc.) matching the v6 CSV.
     """
     prior = games_df[
-        (games_df['home_team'] == team) | (games_df['away_team'] == team)
+        (games_df['home_team'] == team_abbr) | (games_df['away_team'] == team_abbr)
     ].tail(4)
 
     if len(prior) < 2:
         return None
 
-    # Compute rolling averages of the last 4 games for this team
-    off_epa, success, explosive, sack, to, pts = [], [], [], [], [], []
-    for _, g in prior.iterrows():
-        is_home = g['home_team'] == team
-        # v5 CSV columns
-        off_epa.append(g['home_off_epa_r4'] if is_home else g['away_off_epa_r4'])
-        success.append(g['home_success_r4'] if is_home else g['away_success_r4'])
-        explosive.append(g['home_explosive_r4'] if is_home else g['away_explosive_r4'])
-        sack.append(g['home_sack_r4'] if is_home else g['away_sack_r4'])
-        to.append(g['home_to_r4'] if is_home else g['away_to_r4'])
-        pts.append(g['home_pts_r4'] if is_home else g['away_pts_r4'])
-
-    return {
-        'off_epa': float(np.mean(off_epa)),
-        'success': float(np.mean(success)),
-        'explosive': float(np.mean(explosive)),
-        'sack': float(np.mean(sack)),
-        'to': float(np.mean(to)),
-        'pts': float(np.mean(pts)),
+    # v6 column names
+    cols = {
+        'off_epa': 'off_epa_r4',
+        'success': 'success_rate_r4',
+        'explosive': 'explosive_rate_r4',
+        'sack': 'sack_rate_r4',
+        'to': 'turnovers_r4',
+        'pts': 'pts_r4',
+        'cpoe': 'cpoe_r4',
+        'air_epa': 'air_epa_r4',
+        'yac_epa': 'yac_epa_r4',
+        'xpass': 'xpass_rate_r4',
+        'series_success': 'series_success_r4',
+        'rz_td': 'rz_td_rate_r4',
+        'qb_epa': 'qb_epa_r4',
+        'pts_per_drive': 'pts_per_drive_r4',
     }
+    result = {}
+    for short, col in cols.items():
+        vals = []
+        for _, g in prior.iterrows():
+            is_home = g['home_team'] == team_abbr
+            home_col = f'home_{col}'
+            away_col = f'away_{col}'
+            if is_home and home_col in g.index:
+                vals.append(g[home_col])
+            elif not is_home and away_col in g.index:
+                vals.append(g[away_col])
+        result[short] = float(np.mean(vals)) if vals else 0.0
+    return result
 
 
 def predict_ml_probability(home_team, away_team):
     """
-    Return probability home_team wins using the v5 model, or None on error.
+    Return probability home_team wins using the v6 model, or None on error.
     """
     try:
         games_df = load_games()
@@ -90,39 +99,64 @@ def predict_ml_probability(home_team, away_team):
         model = joblib.load(MODEL_PATH)
         feature_cols = joblib.load(FEATURE_COLS_PATH)
 
-        # Build feature dict matching v5 training column names
+        # Build features matching v6 training column names
         feats = {
             'home_off_epa_r4': h['off_epa'],
             'away_off_epa_r4': a['off_epa'],
-            'home_success_r4': h['success'],
-            'away_success_r4': a['success'],
-            'home_explosive_r4': h['explosive'],
-            'away_explosive_r4': a['explosive'],
-            'home_sack_r4': h['sack'],
-            'away_sack_r4': a['sack'],
-            'home_to_r4': h['to'],
-            'away_to_r4': a['to'],
+            'home_success_rate_r4': h['success'],
+            'away_success_rate_r4': a['success'],
+            'home_explosive_rate_r4': h['explosive'],
+            'away_explosive_rate_r4': a['explosive'],
+            'home_sack_rate_r4': h['sack'],
+            'away_sack_rate_r4': a['sack'],
+            'home_turnovers_r4': h['to'],
+            'away_turnovers_r4': a['to'],
             'home_pts_r4': h['pts'],
             'away_pts_r4': a['pts'],
+            'home_cpoe_r4': h['cpoe'],
+            'away_cpoe_r4': a['cpoe'],
+            'home_air_epa_r4': h['air_epa'],
+            'away_air_epa_r4': a['air_epa'],
+            'home_yac_epa_r4': h['yac_epa'],
+            'away_yac_epa_r4': a['yac_epa'],
+            'home_xpass_rate_r4': h['xpass'],
+            'away_xpass_rate_r4': a['xpass'],
+            'home_series_success_r4': h['series_success'],
+            'away_series_success_r4': a['series_success'],
+            'home_rz_td_rate_r4': h['rz_td'],
+            'away_rz_td_rate_r4': a['rz_td'],
+            'home_qb_epa_r4': h['qb_epa'],
+            'away_qb_epa_r4': a['qb_epa'],
+            'home_pts_per_drive_r4': h['pts_per_drive'],
+            'away_pts_per_drive_r4': a['pts_per_drive'],
         }
-        # Add differential features (same as trainer)
-        feats['off_epa_r4_diff'] = h['off_epa'] - a['off_epa']
-        feats['success_r4_diff'] = h['success'] - a['success']
-        feats['explosive_r4_diff'] = h['explosive'] - a['explosive']
-        feats['sack_r4_diff'] = h['sack'] - a['sack']
-        feats['to_r4_diff'] = h['to'] - a['to']
-        feats['pts_r4_diff'] = h['pts'] - a['pts']
+        # Differentials
+        diffs = {
+            'off_epa_r4_diff': 'off_epa',
+            'success_rate_r4_diff': 'success',
+            'explosive_rate_r4_diff': 'explosive',
+            'sack_rate_r4_diff': 'sack',
+            'turnovers_r4_diff': 'to',
+            'pts_r4_diff': 'pts',
+            'cpoe_r4_diff': 'cpoe',
+            'air_epa_r4_diff': 'air_epa',
+            'yac_epa_r4_diff': 'yac_epa',
+            'xpass_rate_r4_diff': 'xpass',
+            'series_success_r4_diff': 'series_success',
+            'rz_td_rate_r4_diff': 'rz_td',
+            'qb_epa_r4_diff': 'qb_epa',
+            'pts_per_drive_r4_diff': 'pts_per_drive',
+        }
+        for diff_name, key in diffs.items():
+            feats[diff_name] = h[key] - a[key]
 
-        # Build input vector in the exact order the model expects
         X = pd.DataFrame([feats])
-        # Ensure all required columns exist; fill missing with 0
         for col in feature_cols:
             if col not in X.columns:
                 X[col] = 0.0
         X = X[feature_cols].fillna(0).values
 
         proba = model.predict_proba(X)[0]
-        # Class order: model.classes_ = [0, 1]; proba[1] = home wins
         return float(proba[1])
 
     except Exception as e:
