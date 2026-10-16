@@ -342,10 +342,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getTeamLogo(teamName: String): Int {
-        val abbrev = teamAbbrevMap[teamName] ?: "pit"
-        val resId = resources.getIdentifier("logo_$abbrev", "drawable", packageName)
+        // Try exact match first (full name)
+        var abbrev = teamAbbrevMap[teamName]
+        // Fallback: already an abbreviation?
+        if (abbrev == null) {
+            val upper = teamName.uppercase().trim()
+            val validAbbrevs = listOf("ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN",
+                "DET","GB","HOU","IND","JAX","KC","LA","LAC","LV","MIA","MIN","NE","NO","NYG",
+                "NYJ","PHI","PIT","SEA","SF","TB","TEN","WAS","WSH")
+            abbrev = if (upper in validAbbrevs) upper else "PIT"
+        }
+        val resId = resources.getIdentifier("logo_${abbrev!!.lowercase()}", "drawable", packageName)
         return if (resId != 0) resId else R.drawable.logo_pit
     }
+    
 
     private fun fetchTeamsFromServer() {
         apiService.getTeams().enqueue(object : Callback<com.bestg.betting.models.TeamsResponse> {
@@ -418,10 +428,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderScorePage() {
         val scores = latestScores
+        scoreBannerContainer.removeAllViews()
+
         if (scores.isEmpty()) {
-            scoreBanner.text = "No live games"
+            val tv = TextView(this)
+            tv.text = "No live games"
+            tv.setTextColor(ContextCompat.getColor(this, R.color.text_score_gold))
+            tv.textSize = 12f
+            scoreBannerContainer.addView(tv)
             return
         }
+
         val perPage = 2
         val totalPages = (scores.size + perPage - 1) / perPage
         val page = scorePage % totalPages
@@ -429,19 +446,17 @@ class MainActivity : AppCompatActivity() {
         val end = minOf(start + perPage, scores.size)
         val slice = scores.subList(start, end)
 
-        // Build a horizontal LinearLayout with real team logos for each game
-        scoreBannerContainer.removeAllViews()
+        val sizePx = (22 * resources.displayMetrics.density).toInt()
+
         for ((i, game) in slice.withIndex()) {
             if (i > 0) {
                 val sep = TextView(this)
-                sep.text = "  |  "
-                sep.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-                sep.textSize = 12f
+                sep.text = "   "
                 scoreBannerContainer.addView(sep)
             }
+
             // Away logo
             val awayLogo = ImageView(this)
-            val sizePx = (20 * resources.displayMetrics.density).toInt()
             awayLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
             awayLogo.setImageResource(getTeamLogo(game.away))
             awayLogo.scaleType = ImageView.ScaleType.FIT_CENTER
@@ -449,7 +464,8 @@ class MainActivity : AppCompatActivity() {
 
             // Score text
             val scoreTv = TextView(this)
-            scoreTv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} (${game.detail.ifEmpty { game.status }})"
+            val detail = game.detail.ifBlank { game.status }
+            scoreTv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} ($detail) "
             scoreTv.setTextColor(ContextCompat.getColor(this, R.color.text_score_gold))
             scoreTv.textSize = 12f
             scoreTv.maxLines = 1
@@ -461,7 +477,6 @@ class MainActivity : AppCompatActivity() {
             homeLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
             homeLogo.setImageResource(getTeamLogo(game.home))
             homeLogo.scaleType = ImageView.ScaleType.FIT_CENTER
-            homeLogo.setPadding(6, 0, 0, 0)
             scoreBannerContainer.addView(homeLogo)
         }
     }

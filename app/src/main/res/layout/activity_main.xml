@@ -34,13 +34,9 @@
 
             <TextView
                 android:id="@+id/scoreBanner"
-                android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:textColor="#FFB612"
-                android:textSize="12sp"
-                android:gravity="center_vertical"
-                android:singleLine="true"
-                android:ellipsize="end"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone"
                 android:text="Loading scores..." />
         </LinearLayout>
     </LinearLayout>
