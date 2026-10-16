@@ -33,3 +33,10 @@ away_score
 # OS
 .DS_Store
 Thumbs.db
+
+# Stale backups / duplicates
+app/src/main/AndroidManifest.xml.bak
+new_app/
+*.bak
+*.backup
+*.backup2

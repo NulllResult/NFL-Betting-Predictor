@@ -1,9 +1,10 @@
 # NFL Betting Predictor — App Manifest
 
-**Generated:** 2026-10-15 21:35  
+**Generated:** 2026-10-16 14:06  
 **Repository:** https://github.com/NulllResult/NFL-Betting-Predictor  
 **Local Path:** `C:\\Users\\User\\NFL-Betting-Predictor`  
-**WSL Path:** `/mnt/c/Users/User/NFL-Betting-Predictor`
+**WSL Path:** `/mnt/c/Users/User/NFL-Betting-Predictor`  
+**Theme:** Pittsburgh Steelers (gold #FFB612 on black #0B0F19)
 
 ---
 
@@ -11,8 +12,9 @@
 
 An Android app + Flask backend that predicts NFL game outcomes using a
 blended machine learning model and live sportsbook odds. Includes live
-scores, team/player stats, weather, injuries, news, betting odds, player
-props, and a self-learning prediction log.
+scores with real team logos, team/player stats, weather, injuries, news,
+betting odds with implied probabilities, player props, historical
+head-to-head, and a self-learning prediction log.
 
 ---
 
@@ -21,23 +23,25 @@ props, and a self-learning prediction log.
 ```
 ┌─────────────────────────┐        ┌──────────────────────────┐
 │  Android App (Kotlin)   │◄──────►│  Flask Backend (Python)  │
-│  - Retrofit HTTP        │  HTTP  │  - betting_api.py        │
-│  - Coroutines           │        │  - feature_updater.py    │
-│  - XML layouts          │        │  - ML models (sklearn)   │
+│  - Retrofit + coroutines│  HTTP  │  - betting_api.py        │
+│  - jmDNS discovery      │        │  - feature_updater.py    │
+│  - WorkManager notifs   │        │  - ML models (sklearn)   │
+│  - ViewModel state      │        │  - mDNS broadcast        │
 └─────────────────────────┘        └──────────────────────────┘
 ```
 
 ### Backend Data Sources
 - ESPN Site API (live scores, schedules, rosters)
 - Sportsipy (team stats, win/loss records)
-- Tomorrow.io (weather, API key required)
-- The Odds API (betting lines, API key required)
+- Tomorrow.io (weather — env var TOMORROW_API_KEY)
+- The Odds API (spread/total/moneyline — env var ODDS_API_KEY)
 - NFL PBP data (advanced features for ML)
 
 ### Android Networking
 - Retrofit 2.9.0 + Gson converter
 - Custom `Call<T>.await()` extension for coroutines
-- Polling live scores every 30s via Handler
+- OkHttp 4.12 with 5s connect / 15s read timeouts
+- Background polling via WorkManager (15 min interval)
 
 ---
 
@@ -50,16 +54,21 @@ props, and a self-learning prediction log.
 | Target SDK | Android 14 | API 34 |
 | Build System | Gradle Kotlin DSL | 8.x |
 | HTTP Client | Retrofit | 2.9.0 |
+| OkHttp | OkHttp | 4.12.0 |
 | JSON | Gson | via converter-gson 2.9.0 |
 | Async | Kotlin Coroutines | 1.7.3 |
 | Lifecycle | androidx.lifecycle-runtime-ktx | 2.7.0 |
 | UI | XML layouts + Material Components | 1.11.0 |
 | Swipe Refresh | androidx.swiperefreshlayout | 1.1.0 |
+| Background | androidx.work-runtime-ktx | 2.9.0 |
+| mDNS | jmDNS | 3.5.9 |
 | Backend | Flask | 3.x |
 | CORS | flask-cors | latest |
 | ML | scikit-learn (RandomForest + GradientBoosting) | latest |
 | Data | pandas, polars, pyarrow, joblib | latest |
 | NFL data | sportsipy, nflreadpy | latest |
+| mDNS (server) | zeroconf | latest |
+| Tests | JUnit 4 | 4.13.2 |
 
 ---
 
@@ -81,28 +90,48 @@ props, and a self-learning prediction log.
 
 ### PREDICT Mode
 - Displays current week's games grouped by day
-- Live game cards (red stroke) / completed (dimmed)
+- Real team logos from ESPN CDN in game cards
+- Live game cards (Steelers gold stroke) / completed (dimmed)
 - Tap a card → ML prediction with:
-  - Predicted winner + score
-  - Model spread (calculated from predicted score)
-  - Predicted total
-  - Blended win probability
+  - Real team logos in header
+  - Predicted winner (with Unicode football icon)
+  - Projected score
+  - Model spread vs Market spread (side-by-side)
+  - Total (model vs market)
+  - Blended win probability with ASCII bars (█▓░)
   - ML model probability vs Market probability
-  - Edge (model - market)
-  - Sportsbook line (spread + total)
-  - Confidence % + level
+  - Edge (colored, with contextual readout)
+  - Confidence level badge (HIGH/MEDIUM/LOW)
+  - Key factors with detail strings
+  - Similar historical matchups (auto-loaded after prediction)
 
-### HELP Button (8-state cycle)
+### HELP Button (14-state cycle)
 1. HELP — instructions
 2. ACCURACY — total/correct/%
-3. PRED LOG — full prediction history with ✓/✗/⏳
-4. LIVE PICKS — in-game win probabilities
-5. ODDS — spread, O/U, moneylines
+3. PRED LOG — filterable (ALL/CORRECT/WRONG/PENDING/STARRED), star via long-press
+4. LIVE PICKS — probability bars, momentum, projected finals
+5. ODDS — implied %, vig, value badges
 6. PROPS — player prop lines + recommendations
 7. PRESEASON — preseason stats for current player
-8. SERVER IP — change backend IP
+8. H2H — head-to-head comparison (record, points, streaks)
+9. WK CHART — accuracy-by-week ASCII bar chart
+10. BACKTEST — accuracy by confidence/side/edge/divisional
+11. FIND SERVER — mDNS auto-discovery
+12. NOTIFS — toggle live-game notifications
+13. THEME — light/dark toggle
+14. SERVER IP — change backend IP manually
 
-Button label updates to show NEXT action (e.g., "ACCURACY →")
+Button label updates to show NEXT action (e.g., \ACCURACY →\)
+
+### Score Banner
+- Steelers logo on left
+- Rotates 2 games at a time every 6 seconds
+- Pauses when app is backgrounded
+
+### Background Features
+- ScoreCheckWorker: polls /live_scores every 15 min, fires notifications
+  when games go from scheduled to LIVE (tracked in prefs)
+- mDNS discovery: finds server on local network automatically
 
 ---
 
@@ -110,16 +139,24 @@ Button label updates to show NEXT action (e.g., "ACCURACY →")
 
 ```
 NFL-Betting-Predictor/
-├── betting_api.py                # Flask server (all endpoints)
+├── betting_api.py                # Flask server (24 endpoints)
 ├── feature_updater.py            # ML feature pipeline
 ├── build_features_v2.py          # PBP data builder v2
 ├── build_features_v3.py          # PBP data builder v3
 ├── generate_manifest.sh          # This script
 ├── APP_MANIFEST.md               # This file
 ├── NFL-Betting-Predictor.apk     # Installable APK
-├── prediction_history.json       # Self-learning log
+├── prediction_history.json       # Self-learning log (140+ entries)
 ├── nfl_advanced_games_v3.csv     # Current game data (2021-2026)
+├── nfl_advanced_games_v2.csv     # Earlier version
+├── nfl_advanced_games.csv        # Earliest version
 ├── training_data.csv             # ML training set
+├── archive/legacy_data/          # Archived unused data files
+│   ├── README.md
+│   ├── enhanced_nfl_games.csv
+│   ├── real_nfl_games.csv
+│   ├── scoreboard.json
+│   └── stats.json
 ├── ml_models/
 │   ├── random_forest.pkl
 │   ├── gradient_boosting.pkl
@@ -127,29 +164,40 @@ NFL-Betting-Predictor/
 │   └── team_strengths.pkl
 └── app/
     ├── build.gradle.kts
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── java/com/bestg/betting/
-        │   ├── MainActivity.kt              # All UI + state
-        │   ├── ApiService.kt                # Retrofit interface
-        │   ├── RetrofitExtensions.kt        # Call<T>.await()
-        │   └── models/
-        │       └── ApiModels.kt             # All data classes
-        └── res/
-            ├── layout/
-            │   ├── activity_main.xml
-            │   ├── spinner_item.xml
-            │   └── spinner_dropdown_item.xml
-            ├── values/
-            │   ├── colors.xml
-            │   ├── strings.xml
-            │   └── themes.xml
-            ├── values-night/
-            │   └── themes.xml
-            └── xml/
-                ├── network_security_config.xml
-                ├── backup_rules.xml
-                └── data_extraction_rules.xml
+    └── src/
+        ├── main/
+        │   ├── AndroidManifest.xml
+        │   ├── java/com/bestg/betting/
+        │   │   ├── MainActivity.kt              # All UI + state
+        │   │   ├── MainViewModel.kt             # Cross-rotation state
+        │   │   ├── ApiService.kt                # Retrofit interface
+        │   │   ├── RetrofitExtensions.kt        # Call<T>.await()
+        │   │   ├── AppLog.kt                    # Structured logging
+        │   │   ├── ServerDiscovery.kt           # mDNS resolver
+        │   │   ├── ScoreCheckWorker.kt          # Background notifier
+        │   │   └── models/
+        │   │       └── ApiModels.kt             # All response data classes
+        │   └── res/
+        │       ├── drawable/
+        │       │   └── logo_*.png               # 32 team logos
+        │       ├── layout/
+        │       │   ├── activity_main.xml
+        │       │   ├── spinner_item.xml
+        │       │   └── spinner_dropdown_item.xml
+        │       ├── mipmap-*/                    # Steelers launcher icons
+        │       ├── values/
+        │       │   ├── colors.xml
+        │       │   ├── strings.xml
+        │       │   └── themes.xml
+        │       └── xml/
+        │           ├── network_security_config.xml
+        │           ├── backup_rules.xml
+        │           └── data_extraction_rules.xml
+        └── test/java/com/bestg/betting/
+            ├── SpreadCalculationTest.kt         # 7 tests
+            ├── EdgeLogicTest.kt                 # 7 tests
+            ├── FilterLogicTest.kt               # 5 tests
+            └── WeatherAdjustmentTest.kt         # 5 tests (24 total)
 ```
 
 ---
@@ -158,6 +206,8 @@ NFL-Betting-Predictor/
 
 | Endpoint | Method | Purpose |
 |---|---|---|
+| `/teams` | GET | — |
+| `/health` | GET | — |
 | `/test` | GET | — |
 | `/team_stats` | GET | — |
 | `/roster` | GET | — |
@@ -169,6 +219,7 @@ NFL-Betting-Predictor/
 | `/predict` | GET | — |
 | `/preseason_stats` | GET | — |
 | `/live_scores` | GET | — |
+| `/accuracy_by_week` | GET | — |
 | `/prediction_accuracy` | GET | — |
 | `/record_prediction` | POST | — |
 | `/live_prediction` | GET | — |
@@ -181,8 +232,12 @@ NFL-Betting-Predictor/
 | `/predict_with_market` | GET | — |
 | `/prediction_log` | GET | — |
 | `/model_report` | GET | — |
+| `/misses_analysis` | GET | — |
 | `/learning_report` | GET | — |
+| `/similar_matchups` | GET | — |
+| `/backtest` | GET | — |
 | `/auto_tune` | GET | — |
+| `/debug_prediction` | GET | — |
 | `/ml_predict` | GET | — |
 
 ---
@@ -191,36 +246,41 @@ NFL-Betting-Predictor/
 
 - **Algorithms:** RandomForest + GradientBoosting (ensemble)
 - **Features:** Rolling EPA, turnovers, weighted injuries, rest days,
-  market-implied probability, team strength, home/away splits
+  market-implied probability, team strength, home/away splits,
+  divisional flag, weather point adjustments
 - **Training data:** 2021-2026 advanced game data (`nfl_advanced_games_v3.csv`)
 - **Blending:** Final probability = weighted avg of model + market
+  - With market: 50/50 model + market (production)
+  - Without market: model-only probability
 - **Edge:** model_prob − market_prob (positive = value bet)
+- **Total derivation:**
+  - With market: uses market total directly
+  - Without market: 45 − 0.5 × |spread|, clamped [34, 56]
 - **Self-learning:** Every prediction logged to `prediction_history.json`,
   resolved automatically when the game completes
 
 ---
 
-## 8. Colors (Theme)
+## 8. Colors (Steelers Theme)
 
 | Name | Hex | Purpose |
 |---|---|---|
-| app_background | #FF1A1A2E | Main background |
-| app_surface | #FF16213E | Panels |
-| app_surface_dark | #FF0A0E1A | Games container |
-| card_live_bg | #FF1A2F4A | Live game card |
-| card_live_stroke | #FFFF4444 | Live game border |
-| card_completed_bg | #FF141824 | Finished game card |
-| card_default_bg | #FF1E2740 | Scheduled game card |
-| text_primary | #FFDDE4F0 | Body text |
-| text_secondary | #FF8899AA | Labels |
-| text_white | #FFFFFFFF | Headers |
-| text_score_gold | #FFFFD700 | Score banner |
-| status_live | #FFFF4444 | LIVE indicator |
-| status_final | #FF8899AA | FINAL indicator |
-| status_upcoming | #FF4A9EFF | Scheduled indicator |
-| text_winner | #FF00FF88 | Winning team |
-| day_header | #FF4A9EFF | Day group header |
-| text_error | #FFFF4444 | Error text |
+| steelers_gold | #FFB612 | Primary accent |
+| steelers_black | #0B0F19 | Main background |
+| app_background | #0B0F19 | Base |
+| app_surface | #1A1A1A | Panels |
+| card_live_bg | #1A1A1A | Live game card |
+| card_live_stroke | #FFB612 | Live game border (gold) |
+| card_completed_bg | #0B0F19 | Finished game card |
+| card_default_bg | #1A1A1A | Scheduled game card |
+| text_primary | #FFFFFFFF | Body text |
+| text_secondary | #8B949E | Labels |
+| text_score_gold | #FFB612 | Score banner |
+| edge_positive | #FF00FF88 | Positive edge |
+| edge_negative | #FFFF6B6B | Negative edge |
+| confidence_high | #FF00FF88 | HIGH confidence |
+| confidence_medium | #FFFFB612 | MEDIUM confidence |
+| confidence_low | #FFFF6B6B | LOW confidence |
 
 ---
 
@@ -230,21 +290,29 @@ NFL-Betting-Predictor/
 ```
 10.0.0.60:5000
 ```
-Changeable at runtime via HELP → SERVER IP. Persisted in SharedPreferences
-under key `server_ip`.
+Changeable 3 ways:
+1. HELP 14x → SERVER IP (manual entry)
+2. HELP 11x → FIND SERVER (mDNS auto-discovery)
+3. Persisted in SharedPreferences under key `server_ip`
 
 ### SharedPreferences keys
 | Key | Type | Purpose |
 |---|---|---|
 | server_ip | String | Backend IP |
 | favorite_teams | StringSet | Starred teams |
-| manual_overrides | StringSet | Offline stat overrides |
+| manual_overrides_json | String | Manual overrides (JSON format) |
+| manual_overrides | StringSet | Legacy pipe-delimited format (still readable) |
+| watched_predictions | StringSet | Starred predictions |
+| theme_mode | String | 'dark' or 'light' |
+| notif_enabled | Boolean | Notifications toggle |
+| notif_seen_live_games | StringSet | Track games already notified |
 
-### API Keys (in betting_api.py)
-- TOMORROW_API_KEY (weather)
-- ODDS_API_KEY (betting lines)
-
-⚠️  **These are currently hardcoded. Move to env vars before public release.**
+### API Keys
+Both read from environment with fallback to embedded keys:
+```bash
+set TOMORROW_API_KEY=your_key_here   # Windows CMD
+set ODDS_API_KEY=your_key_here
+```
 
 ---
 
@@ -255,6 +323,12 @@ under key `server_ip`.
 cmd.exe /c "cd /d C:\\Users\\User\\NFL-Betting-Predictor && gradlew clean assembleDebug"
 ```
 
+### Run tests
+```bash
+cmd.exe /c "cd /d C:\\Users\\User\\NFL-Betting-Predictor && gradlew testDebugUnitTest"
+```
+Result: 24 tests in 4 suites (SpreadCalculation, EdgeLogic, FilterLogic, WeatherAdjustment)
+
 ### Copy APK to repo root
 ```bash
 cp app/build/outputs/apk/debug/app-debug.apk NFL-Betting-Predictor.apk
@@ -262,7 +336,7 @@ cp app/build/outputs/apk/debug/app-debug.apk NFL-Betting-Predictor.apk
 
 ### Commit and push
 ```bash
-git add -f NFL-Betting-Predictor.apk app/src/main/java/com/bestg/betting/MainActivity.kt
+git add -A
 git commit -m "message"
 git push
 ```
@@ -274,64 +348,40 @@ schtasks /run /tn NFLServer
 ```
 
 ### Install on phone
-Download `NFL-Betting-Predictor.apk` from GitHub → sideload → grant network permission
+Download `NFL-Betting-Predictor.apk` from GitHub → sideload → grant permissions
 
 ---
 
-## 11. Known Issues / TODOs
+## 11. Testing
 
-- [ ] Score polling continues when app is backgrounded (battery drain)
-- [ ] Retrofit has no explicit timeouts (slow servers hang the UI)
-- [ ] API keys are hardcoded in `betting_api.py`
-- [ ] Server IP is hardcoded (breaks for non-LAN installs)
-- [ ] Prediction log shows all entries (no filter)
-- [ ] `key_factors` field is unused in UI
-- [ ] All UI logic still in MainActivity (~800 lines)
-- [ ] No unit tests
-- [ ] No ProGuard rules for release build
-- [ ] Manual overrides serialize as pipe-delimited strings (fragile)
+24 unit tests covering:
+- Spread calculation from predicted score (7 tests)
+- Edge logic and readout thresholds (7 tests)
+- Prediction log filter behavior + data preservation (5 tests)
+- Weather severity ordering (5 tests)
+
+Run with: `gradlew testDebugUnitTest`
 
 ---
 
-## 12. Git History (recent)
+## 12. Recent Changes (last 5 commits)
 
 ```
+a687557 Add .gitignore; untrack gradle cache, pycache, local.properties, temp scripts
+08b0d9e Final phase: mDNS, notifications, ViewModel, tests, cleanup
 c84258c Fix: Predicted spread calculates from predicted score
 0e3fd94 Rename market section to SPORTSBOOK LINE
 3e622c7 ML v3 with 2026 data, feature updater, latest APK
-42e4d41 Clean spread and whole-number totals
-a07f374 Display spread and total in prediction
-570d929 ML model 60% accuracy wired into app
-0d24259 Market-derived scores, winner matches score
-08b4761 Turnover diff, EPA, weighted injuries, market edge, calibrated confidence
-ec7b291 HELP button cycles through actions with text visibility
-e48e945 HELP button cycles through actions
-21f67ae Add test network functions
-dae963c Menu redesigned as number input
-c067fc8 Dismiss dialog before running menu action
-db4e7dc Reduce HELP menu to 4 items
-cab0643 Wrap HELP menu in try/catch
-070c7ec HELP button single-tap opens menu
-f0442a4 Market cache, blend, auto-resolve on predict
-6e5b38e Fix timezone: MNF shows Monday not Tuesday
-b8a1488 REFRESH button becomes BACK when viewing prediction
-a9f1d32 Pro dashboard with day-grouped cards
 ```
 
 ---
 
-## 13. Recent Fixes
+## 13. Known Limitations
 
-- **Predicted spread** now calculated from predicted score (not market line)
-- **Market section** renamed to "SPORTSBOOK LINE" for clarity
-- **parallel API calls** in getTeamStats via coroutines (6x faster)
-- **onDestroy** cleanup for score polling Handler (memory leak fix)
-- **Loading states** added to all API calls
-- **Null-safety** on edge / blended / ml probabilities
-- **Colors** moved from hardcoded hex to colors.xml
-- **HELP button** label shows next action
-- **TestActivity** removed from manifest (didn't exist)
-- **preseason_stats** now wired into HELP cycle
+- API keys embedded as fallback (rotate regularly; env vars override)
+- Server IP defaults to 10.0.0.60 (configurable via prefs)
+- Some UI state mirrors in MainActivity + ViewModel (full MVVM not extracted)
+- WifiManager.connectionInfo is deprecated but still functional
 
 ---
 
