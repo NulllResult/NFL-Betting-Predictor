@@ -539,6 +539,50 @@ def compute_clv(predicted_spread, closing_spread):
     return round(predicted_spread - closing_spread, 2)
 
 
+
+# ─────────────────────────────────────────────────────────────
+# AUTO-RESOLVE DAEMON
+# Runs check_results_internal() every 30 minutes in a background
+# thread. Eliminates the "107 pending, 40 resolved" backlog.
+# ─────────────────────────────────────────────────────────────
+import threading as _threading
+_auto_resolve_thread = None
+_auto_resolve_stop = _threading.Event()
+
+
+def _auto_resolve_loop():
+    """Background thread: resolve pending predictions every 30 min."""
+    import time as _t
+    # Wait 60s after server start before first run
+    _auto_resolve_stop.wait(60)
+    while not _auto_resolve_stop.is_set():
+        try:
+            updated = check_results_internal()
+            if updated > 0:
+                print(f"[auto-resolve] {updated} predictions resolved")
+        except Exception as e:
+            print(f"[auto-resolve] error: {e}")
+        # Sleep 30 min (or until stop)
+        _auto_resolve_stop.wait(1800)
+
+
+def _start_auto_resolve():
+    global _auto_resolve_thread
+    if _auto_resolve_thread is None or not _auto_resolve_thread.is_alive():
+        _auto_resolve_thread = _threading.Thread(
+            target=_auto_resolve_loop,
+            daemon=True,
+            name="auto_resolve"
+        )
+        _auto_resolve_thread.start()
+        print("[auto-resolve] daemon started (30 min interval)")
+
+@app.route('/trigger_resolve', methods=['GET'])
+def trigger_resolve():
+    """Manually trigger resolution — useful for testing."""
+    updated = check_results_internal()
+    return jsonify({"updated": updated, "total": len(load_prediction_history())})
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({"status": "ok", "sportsipy_available": SPORTSIPY_AVAILABLE})
@@ -1945,6 +1989,40 @@ def prediction_log():
     return jsonify({"log": recent, "total": len(history)})
 
 
+
+def get_closing_line(team1, team2):
+    """
+    Fetch the current (closing) spread for a matchup from The Odds API.
+    Used at resolution time to compute CLV.
+    """
+    try:
+        url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
+        params = {
+            "apiKey": ODDS_API_KEY,
+            "regions": "us",
+            "markets": "spreads",
+            "oddsFormat": "american",
+        }
+        r = requests.get(url, params=params, timeout=8)
+        if r.status_code != 200:
+            return None
+        for game in r.json():
+            if (game.get("home_team") == team1 and game.get("away_team") == team2) or \
+               (game.get("home_team") == team2 and game.get("away_team") == team1):
+                spreads = []
+                for bk in game.get("bookmakers", []):
+                    for mk in bk.get("markets", []):
+                        if mk.get("key") == "spreads":
+                            for o in mk.get("outcomes", []):
+                                if o.get("name") == team1:
+                                    spreads.append(o.get("point"))
+                if spreads:
+                    return round(sum(spreads) / len(spreads), 2)
+    except Exception:
+        pass
+    return None
+
+
 def check_results_internal():
     """Scan completed games and mark predictions"""
     history = load_prediction_history()
@@ -1973,6 +2051,7 @@ def check_results_internal():
             "away_score": as_
         })
     updated = 0
+    import time as _t
     for h in history:
         if h.get('correct') is not None: continue
         for fg in final_games:
@@ -1981,13 +2060,60 @@ def check_results_internal():
                 h['actual_winner'] = fg['winner']
                 h['actual_score'] = fg['score']
                 h['correct'] = (h.get('predicted_winner') == fg['winner'])
-                # Track if market was correct too
+                h['resolved_at'] = _t.time()
+
+                # ───── ENHANCED METRICS ─────
+
+                # Was the market correct?
                 if h.get('market_home_prob') is not None:
                     if h['market_home_prob'] > 50:
                         h['market_pick'] = h.get('team1')
                     else:
                         h['market_pick'] = h.get('team2')
                     h['market_correct'] = (h.get('market_pick') == fg['winner'])
+
+                # Final margin + did we hit the spread?
+                margin = fg['home_score'] - fg['away_score']
+                h['final_margin'] = margin
+                # Parse our predicted spread to check spread hit
+                ps = h.get('predicted_spread', '') or ''
+                if ' -' in ps or ' +' in ps:
+                    try:
+                        parts = ps.rsplit(' ', 1)
+                        our_line = float(parts[1].replace('+', ''))
+                        # Which team did we say would cover?
+                        our_team = ps[:ps.rfind(' ')]
+                        if our_team == h.get('team1'):
+                            # We said home covers
+                            h['spread_hit'] = (margin + our_line) > 0  # home needs margin > |our_line|
+                        elif our_team == h.get('team2'):
+                            # We said away covers
+                            h['spread_hit'] = (margin + our_line) < 0
+                    except Exception:
+                        h['spread_hit'] = None
+
+                # Compute CLV if we had an opening spread and can get a closing spread
+                opening = h.get('opening_spread')
+                if opening is not None:
+                    try:
+                        closing = get_closing_line(h.get('team1'), h.get('team2'))
+                        if closing is not None:
+                            h['closing_spread'] = closing
+                            h['clv'] = round(abs(closing) - abs(opening), 2)
+                    except Exception:
+                        pass
+
+                # Record which signal-type buckets were present at prediction time
+                kf = h.get('key_factors') or []
+                signals = []
+                for f in kf:
+                    if f.startswith('QB EPA'): signals.append('qb_epa')
+                    elif f.startswith('Contrarian'): signals.append('contrarian')
+                    elif f.startswith('Schedule'): signals.append('schedule')
+                    elif f.startswith('Coaching'): signals.append('coaching')
+                    elif f.startswith('ML model'): signals.append('ml_model')
+                h['signals_present'] = signals
+
                 updated += 1
                 break
     if updated > 0:
@@ -2113,6 +2239,84 @@ def learning_report():
         }
     })
 
+
+@app.route('/signal_attribution', methods=['GET'])
+def signal_attribution():
+    """
+    For each signal, compute: how often was it present, and when present,
+    did the prediction it fired on win?
+    Also: are signals additive (present together → higher accuracy)?
+    """
+    history = load_prediction_history()
+    resolved = [e for e in history if e.get('correct') is not None]
+
+    if len(resolved) < 20:
+        return jsonify({
+            "status": "need_more_data",
+            "resolved": len(resolved),
+            "message": "Need 20+ resolved predictions to compute signal attribution"
+        })
+
+    # Signal categories we care about
+    signals = ["qb_epa", "contrarian", "schedule", "coaching", "ml_model"]
+
+    per_signal = {}
+    for sig in signals:
+        with_sig = [e for e in resolved if sig in (e.get('signals_present') or [])]
+        without = [e for e in resolved if sig not in (e.get('signals_present') or [])]
+
+        def acc(lst):
+            if not lst:
+                return None
+            return round(100.0 * sum(1 for e in lst if e.get('correct')) / len(lst), 1)
+
+        per_signal[sig] = {
+            "with_count": len(with_sig),
+            "with_accuracy": acc(with_sig),
+            "without_count": len(without),
+            "without_accuracy": acc(without),
+            "lift": round((acc(with_sig) or 0) - (acc(without) or 0), 1) if with_sig and without else None
+        }
+
+    # Signal-stacking: how does accuracy change with 0, 1, 2+ signals present?
+    by_signal_count = {}
+    for e in resolved:
+        n = len(e.get('signals_present') or [])
+        by_signal_count.setdefault(n, []).append(e)
+
+    stacking = {}
+    for k in sorted(by_signal_count.keys()):
+        lst = by_signal_count[k]
+        stacking[k] = {
+            "count": len(lst),
+            "accuracy": round(100.0 * sum(1 for e in lst if e.get('correct')) / len(lst), 1)
+        }
+
+    # Confidence-bucket accuracy for the signals that ARE present
+    by_confidence = {}
+    for e in resolved:
+        conf = e.get('confidence') or 0
+        bucket = int(conf // 10) * 10
+        by_confidence.setdefault(bucket, []).append(e)
+
+    confidence_accuracy = {}
+    for b in sorted(by_confidence.keys()):
+        lst = by_confidence[b]
+        confidence_accuracy[f"{b}-{b+10}"] = {
+            "count": len(lst),
+            "accuracy": round(100.0 * sum(1 for e in lst if e.get('correct')) / len(lst), 1)
+        }
+
+    return jsonify({
+        "total_resolved": len(resolved),
+        "per_signal": per_signal,
+        "signal_stacking": stacking,
+        "confidence_buckets": confidence_accuracy,
+        "interpretation": {
+            "lift": "Positive = signal adds accuracy when present. Negative = signal is anti-correlated.",
+            "stacking": "More signals present should correlate with higher accuracy, if signals are independent."
+        }
+    })
 
 @app.route('/similar_matchups', methods=['GET'])
 def similar_matchups():
@@ -2524,8 +2728,11 @@ def ml_predict():
     raw_confidence = round(abs(blended - 50) * 2, 1)
 
     # CALIBRATED confidence — real-world accuracy in this bucket
-    NO_PICK_MAX_RAW_CONF = 8.0
-    is_no_pick = raw_confidence < NO_PICK_MAX_RAW_CONF
+    NO_PICK_MAX_RAW_CONF = 10.0
+    NO_PICK_INVERTED_MIN = 20.0
+    NO_PICK_INVERTED_MAX = 30.0
+    is_no_pick = (raw_confidence < NO_PICK_MAX_RAW_CONF) or \
+                 (NO_PICK_INVERTED_MIN <= raw_confidence < NO_PICK_INVERTED_MAX)
     confidence = calibrated_confidence(blended)
     raw_conf_pct = raw_confidence
 
@@ -2674,6 +2881,7 @@ def _start_mdns_broadcast(port=5000):
 if __name__ == "__main__":
     print("NFL API Running on http://localhost:5000")
     _zc = _start_mdns_broadcast(5000)
+    _start_auto_resolve()
     try:
         app.run(host="0.0.0.0", port=5000, debug=True)
     finally:
