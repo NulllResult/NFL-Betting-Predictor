@@ -959,49 +959,19 @@ class MainActivity : AppCompatActivity() {
         resultText.visibility = View.VISIBLE
         spinnersRow.visibility = View.VISIBLE
         playerSpinner.visibility = View.VISIBLE
-        val numberedTeams = allNFLTeams.mapIndexed { index, team -> "${index + 1}. $team" }
-        val teamAdapter = ArrayAdapter(this, R.layout.spinner_item, numberedTeams)
-        teamAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
-        teamSpinner.adapter = teamAdapter
+        resultText.text = "Select a team, then a player"
+        val numbered = allNFLTeams.mapIndexed { i, t -> "${i + 1}. $t" }
+        val adapter = ArrayAdapter(this, R.layout.spinner_item, numbered)
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
+        teamSpinner.adapter = adapter
         teamSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                currentTeam = allNFLTeams[position]
-                loadRosterForTeam(currentTeam)
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos in allNFLTeams.indices) {
+                    currentTeam = allNFLTeams[pos]
+                    loadRosterForTeam(currentTeam)
+                }
             }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-        // Add props/preseason buttons below the spinners if not already present
-        val parent = spinnersRow.parent as? LinearLayout
-        if (parent != null && parent.findViewWithTag<View>("playerExtrasRow") == null) {
-            val extrasRow = LinearLayout(this)
-            extrasRow.tag = "playerExtrasRow"
-            extrasRow.orientation = LinearLayout.HORIZONTAL
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.setMargins(0, 6, 0, 0)
-            extrasRow.layoutParams = lp
-
-            val propsBtn = com.google.android.material.button.MaterialButton(this)
-            propsBtn.text = "PROPS"
-            propsBtn.textSize = 11f
-            propsBtn.layoutParams = LinearLayout.LayoutParams(0, 96, 1f)
-            propsBtn.setOnClickListener { showPlayerProps() }
-            extrasRow.addView(propsBtn)
-
-            val psBtn = com.google.android.material.button.MaterialButton(this)
-            psBtn.text = "PRESEASON"
-            psBtn.textSize = 11f
-            val lp2 = LinearLayout.LayoutParams(0, 96, 1f)
-            lp2.setMargins(8, 0, 0, 0)
-            psBtn.layoutParams = lp2
-            psBtn.setOnClickListener { showPreseasonStats() }
-            extrasRow.addView(psBtn)
-
-            // Insert after spinnersRow
-            val spinnersIndex = parent.indexOfChild(spinnersRow)
-            parent.addView(extrasRow, spinnersIndex + 1)
+            override fun onNothingSelected(p: AdapterView<*>?) {}
         }
     }
 
