@@ -465,7 +465,7 @@ class MainActivity : AppCompatActivity() {
             tv.textSize = 13f
             tv.maxLines = 1
             tv.ellipsize = android.text.TextUtils.TruncateAt.END
-            tv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            tv.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             row.addView(tv)
 
             val homeLogo = ImageView(this)
