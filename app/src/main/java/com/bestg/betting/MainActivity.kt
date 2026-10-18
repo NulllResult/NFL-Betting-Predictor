@@ -968,10 +968,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setStatsMode() {
         currentMode = "STATS"
-        gamesContainer.visibility = View.VISIBLE
+        gamesContainer.visibility = View.GONE
+        gamesScroll.visibility = View.GONE
         swipeRefresh.visibility = View.VISIBLE
         resultText.visibility = View.VISIBLE
-        spinnersRow.visibility = View.GONE
+        spinnersRow.visibility = View.VISIBLE
+        playerSpinner.visibility = View.GONE
+        findViewById<MaterialButton>(R.id.helpButton).text = "HELP →"
         resultText.text = "Select a team"
         val numberedTeams = allNFLTeams.mapIndexed { index, team -> "${index + 1}. $team" }
         val teamAdapter = ArrayAdapter(this, R.layout.spinner_item, numberedTeams)
