@@ -181,32 +181,32 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.clearButton).setOnClickListener { resultText.text = "" }
         findViewById<MaterialButton>(R.id.helpButton).setOnClickListener {
+            // If in PLAYER mode, act as BACK
+            if (currentMode == "PLAYER") {
+                (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
+                setStatsMode()
+                helpCycle = 0
+                updateHelpButtonLabel()
+                return@setOnClickListener
+            }
 
-            // Always hide games container so we can show text
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
-            helpCycle = (helpCycle + 1) % 14
+            helpCycle = (helpCycle + 1) % 12
             when (helpCycle) {
-                0 -> showHelp()
-                1 -> showAccuracy()
-                2 -> showPredictionLog()
-                3 -> showLivePredictions()
-                4 -> showOdds()
-                5 -> {
-                    if (currentPlayer.isEmpty()) {
-                        resultText.text = "Select a player first in PLAYER mode\n\nTap HELP again to continue"
-                    } else {
-                        showPlayerProps()
-                    }
-                }
-                6 -> showPreseasonStats()
-                7 -> showHeadToHead()
-                8 -> showAccuracyByWeek()
-                9 -> showBacktest()
-                10 -> autoDetectServer()
-                11 -> toggleNotifications()
-                12 -> showServerIpDialog()
+                0 -> setPlayerMode()
+                1 -> showHelp()
+                2 -> showAccuracy()
+                3 -> showPredictionLog()
+                4 -> showLivePredictions()
+                5 -> showOdds()
+                6 -> showHeadToHead()
+                7 -> showAccuracyByWeek()
+                8 -> showBacktest()
+                9 -> autoDetectServer()
+                10 -> toggleNotifications()
+                11 -> showServerIpDialog()
             }
             updateHelpButtonLabel()
         }
@@ -1036,6 +1036,8 @@ class MainActivity : AppCompatActivity() {
             val spinnersIndex = parent.indexOfChild(spinnersRow)
             parent.addView(extrasRow, spinnersIndex + 1)
         }
+        
+        findViewById<MaterialButton>(R.id.helpButton).text = "← BACK"
     }
 
     private fun setPredictMode() {
