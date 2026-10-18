@@ -1634,62 +1634,54 @@ class MainActivity : AppCompatActivity() {
 
     private fun showHeadToHead() {
         if (currentTeam.isEmpty() || opponentTeam.isEmpty()) {
-            resultText.text = "H2H needs a matchup.\n\nGo to PREDICT mode, tap a game, then tap HELP 7 times."
+            resultText.text = "H2H needs a matchup.\n\nTap PREDICT, select a game, then come back here."
             return
         }
         showLoading(true)
-        resultText.text = "Building H2H: $currentTeam vs $opponentTeam..."
-
-        // Pull both team stats in parallel and diff them
-        lifecycleScope.launch {
-            try {
-                val homeStats = async { apiService.getTeamStats(currentTeam).await() }
-                val awayStats = async { apiService.getTeamStats(opponentTeam).await() }
-                val homeWl = async { apiService.getWinLoss(currentTeam).await() }
-                val awayWl = async { apiService.getWinLoss(opponentTeam).await() }
-
-                val hs = homeStats.await()
-                val as_ = awayStats.await()
-                val hw = homeWl.await()
-                val aw = awayWl.await()
-
-                showLoading(false)
-                val sb = StringBuilder()
-                sb.append("HEAD-TO-HEAD\n")
-                sb.append("==============================\n\n")
-                sb.append("$currentTeam (home)  vs  $opponentTeam (away)\n\n")
-
-                sb.append("RECORD\n")
-                sb.append("  $currentTeam: ${hw.regular_season_record ?: "N/A"}  (${String.format("%.1f", (hw.win_percentage ?: 0.0) * 100)}%)\n")
-                sb.append("  $opponentTeam: ${aw.regular_season_record ?: "N/A"}  (${String.format("%.1f", (aw.win_percentage ?: 0.0) * 100)}%)\n\n")
-
-                sb.append("POINTS\n")
-                sb.append("  $currentTeam:  PF ${hs.points_for ?: 0}  PA ${hs.points_against ?: 0}\n")
-                sb.append("  $opponentTeam: PF ${as_.points_for ?: 0}  PA ${as_.points_against ?: 0}\n\n")
-
-                val homeDiff = (hs.points_for ?: 0) - (hs.points_against ?: 0)
-                val awayDiff = (as_.points_for ?: 0) - (as_.points_against ?: 0)
-                sb.append("POINT DIFFERENTIAL\n")
-                sb.append("  $currentTeam:  ${if (homeDiff >= 0) "+" else ""}$homeDiff\n")
-                sb.append("  $opponentTeam: ${if (awayDiff >= 0) "+" else ""}$awayDiff\n\n")
-
-                sb.append("STREAKS\n")
-                sb.append("  $currentTeam:  ${hs.streak ?: "N/A"}\n")
-                sb.append("  $opponentTeam: ${as_.streak ?: "N/A"}\n\n")
-
-                sb.append("EDGE\n")
-                when {
-                    homeDiff > awayDiff -> sb.append("  $currentTeam by ${homeDiff - awayDiff} pts\n")
-                    awayDiff > homeDiff -> sb.append("  $opponentTeam by ${awayDiff - homeDiff} pts\n")
-                    else -> sb.append("  Even matchup\n")
-                }
-
-                resultText.text = sb.toString()
-            } catch (e: Exception) {
-                showLoading(false)
-                resultText.text = "H2H failed: ${e.message}"
+        resultText.text = "Loading H2H: $currentTeam vs $opponentTeam..."
+        apiService.getTeamStats(currentTeam).enqueue(object : Callback<TeamStatsResponse> {
+            override fun onResponse(call: Call<TeamStatsResponse>, response: Response<TeamStatsResponse>) {
+                val hs = response.body()
+                apiService.getTeamStats(opponentTeam).enqueue(object : Callback<TeamStatsResponse> {
+                    override fun onResponse(call: Call<TeamStatsResponse>, resp2: Response<TeamStatsResponse>) {
+                        val as_ = resp2.body()
+                        showLoading(false)
+                        val sb = StringBuilder()
+                        sb.append("HEAD-TO-HEAD\n")
+                        sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+                        sb.append("$currentTeam (Home)  vs  $opponentTeam (Away)\n\n")
+                        sb.append("POINTS FOR\n")
+                        sb.append("  $currentTeam: ${hs?.points_for ?: "N/A"}\n")
+                        sb.append("  $opponentTeam: ${as_?.points_for ?: "N/A"}\n\n")
+                        sb.append("POINTS AGAINST\n")
+                        sb.append("  $currentTeam: ${hs?.points_against ?: "N/A"}\n")
+                        sb.append("  $opponentTeam: ${as_?.points_against ?: "N/A"}\n\n")
+                        
+                        val homeDiff = (hs?.points_for ?: 0) - (hs?.points_against ?: 0)
+                        val awayDiff = (as_?.points_for ?: 0) - (as_?.points_against ?: 0)
+                        sb.append("POINT DIFFERENTIAL\n")
+                        sb.append("  $currentTeam: ${if (homeDiff >= 0) "+" else ""}$homeDiff\n")
+                        sb.append("  $opponentTeam: ${if (awayDiff >= 0) "+" else ""}$awayDiff\n\n")
+                        
+                        sb.append("EDGE\n")
+                        when {
+                            homeDiff > awayDiff -> sb.append("  $currentTeam by ${homeDiff - awayDiff} pts\n")
+                            awayDiff > homeDiff -> sb.append("  $opponentTeam by ${awayDiff - homeDiff} pts\n")
+                            else -> sb.append("  Even matchup\n")
+                        }
+                        resultText.text = sb.toString()
+                    }
+                    override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) {
+                        showLoading(false)
+                        resultText.text = "H2H failed: ${t.message}"
+                    }
+                })
             }
-        }
+            override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) {
+                showLoading(false)
+                resultText.text = "H2H failed: ${t.message}"
+            }
+        })
     }
 
     private fun showPreseasonStats() {
