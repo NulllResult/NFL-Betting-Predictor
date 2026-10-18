@@ -429,7 +429,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderScorePage() {
         val scores = latestScores
         scoreBannerFlipper.removeAllViews()
-        
+
         if (scores.isEmpty()) {
             val tv = TextView(this)
             tv.text = " No live games"
@@ -442,23 +442,24 @@ class MainActivity : AppCompatActivity() {
 
         val sizePx = (22 * resources.displayMetrics.density).toInt()
 
-        // Build a full-width horizontal row for each game
         for (game in scores) {
             val row = LinearLayout(this)
             row.orientation = LinearLayout.HORIZONTAL
             row.gravity = android.view.Gravity.CENTER_VERTICAL
+            // WRAP_CONTENT is the magic fix here. Do not use MATCH_PARENT.
             row.layoutParams = android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
             )
-            row.gravity = android.view.Gravity.CENTER_VERTICAL
 
+            // Away logo
             val awayLogo = ImageView(this)
             awayLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
             awayLogo.setImageResource(getTeamLogo(game.away))
             awayLogo.scaleType = ImageView.ScaleType.FIT_CENTER
             row.addView(awayLogo)
 
+            // Score text
             val tv = TextView(this)
             val detail = game.detail.ifBlank { game.status }
             tv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} ($detail) "
@@ -466,10 +467,14 @@ class MainActivity : AppCompatActivity() {
             tv.textSize = 13f
             tv.maxLines = 1
             tv.ellipsize = android.text.TextUtils.TruncateAt.END
-            tv.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             tv.setPadding(8, 0, 8, 0)
+            tv.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             row.addView(tv)
 
+            // Home logo
             val homeLogo = ImageView(this)
             homeLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
             homeLogo.setImageResource(getTeamLogo(game.home))
@@ -479,7 +484,6 @@ class MainActivity : AppCompatActivity() {
             scoreBannerFlipper.addView(row)
         }
 
-        // Start the flipper
         if (scores.size > 1) {
             scoreBannerFlipper.startFlipping()
         }
