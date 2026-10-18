@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity() {
         })
 
         setupRetrofit()
+        testConnection()
 
         swipeRefresh.setOnRefreshListener { 
             when (currentMode) {
@@ -327,11 +328,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun testConnection() {
         showLoading(true)
+        resultText.text = "Connecting to http://$serverIp:5000...\n\nIf this stays here, the app cannot reach your PC.\n\nLong-press the big gold button to change the IP."
+        
         apiService.testConnection().enqueue(object : Callback<TestResponse> {
             override fun onResponse(call: Call<TestResponse>, response: Response<TestResponse>) {
-                showLoading(false); resultText.text = "Server connected!"
+                showLoading(false)
+                resultText.text = "✅ SERVER CONNECTED\nIP: $serverIp\n\nLoading games..."
             }
-            override fun onFailure(call: Call<TestResponse>, t: Throwable) { showLoading(false); resultText.text = "❌ CONNECTION FAILED\n\nCould not reach $serverIp\n\nLong-press the gold button to change the IP." }
+            override fun onFailure(call: Call<TestResponse>, t: Throwable) {
+                showLoading(false)
+                resultText.text = "❌ CONNECTION FAILED\nIP: $serverIp\n\nError: ${t.message}\n\nLong-press the big gold button to change IP."
+            }
         })
     }
 
