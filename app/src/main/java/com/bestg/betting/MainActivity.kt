@@ -188,7 +188,7 @@ class MainActivity : AppCompatActivity() {
                 updateHelpButtonLabel()
                 return@setOnClickListener
             }
-            helpCycle = (helpCycle + 1) % 9
+            helpCycle = (helpCycle + 1) % 10
             when (helpCycle) {
                 0 -> setPlayerMode()
                 1 -> showHelp()
@@ -196,9 +196,10 @@ class MainActivity : AppCompatActivity() {
                 3 -> showPredictionLog()
                 4 -> showLivePredictions()
                 5 -> showOdds()
-                6 -> showAccuracyByWeek()
-                7 -> showBacktest()
-                8 -> showServerIpDialog()
+                6 -> showHeadToHead()
+                7 -> showAccuracyByWeek()
+                8 -> showBacktest()
+                9 -> showServerIpDialog()
             }
             updateHelpButtonLabel()
         }
@@ -1156,11 +1157,11 @@ class MainActivity : AppCompatActivity() {
                         currentTeam = g.home_full
                         opponentTeam = g.away_full
                         gamesContainer.visibility = View.GONE
+                        gamesScroll.visibility = View.GONE
                         swipeRefresh.visibility = View.VISIBLE
                         resultText.visibility = View.VISIBLE
                         resultText.text = "Analyzing ${g.away_full} @ ${g.home_full}..."
                         fetchPrediction(g.home_full, g.away_full)
-                        // Re-enable back button
                         findViewById<MaterialButton>(R.id.refreshAllButton).text = "← BACK"
                     }
                     gamesList.addView(card)
@@ -1616,7 +1617,7 @@ class MainActivity : AppCompatActivity() {
         }
         val labels = listOf(
             "PLAYER", "HELP", "ACCURACY", "PRED LOG", "LIVE PICKS",
-            "ODDS", "WK CHART", "BACKTEST", "SERVER IP"
+            "ODDS", "H2H", "WK CHART", "BACKTEST", "SERVER IP"
         )
         val nextLabel = labels[(helpCycle + 1) % labels.size]
         helpBtn.text = "$nextLabel →"
@@ -1628,6 +1629,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         showLoading(true)
+        gamesContainer.visibility = View.GONE
+        gamesScroll.visibility = View.GONE
+        swipeRefresh.visibility = View.VISIBLE
+        resultText.visibility = View.VISIBLE
         resultText.text = "Loading H2H: $currentTeam vs $opponentTeam..."
         apiService.getTeamStats(currentTeam).enqueue(object : Callback<TeamStatsResponse> {
             override fun onResponse(call: Call<TeamStatsResponse>, response: Response<TeamStatsResponse>) {
