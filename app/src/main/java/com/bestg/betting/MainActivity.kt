@@ -188,16 +188,7 @@ class MainActivity : AppCompatActivity() {
                 updateHelpButtonLabel()
                 return@setOnClickListener
             }
-
-            // Reset to text view mode
-            gamesContainer.visibility = View.GONE
-            swipeRefresh.visibility = View.VISIBLE
-            resultText.visibility = View.VISIBLE
-            
-            // 0 = PLAYER, 1 = HELP, 2 = ACCURACY, 3 = PRED LOG, 4 = LIVE PICKS,
-            // 5 = ODDS, 6 = H2H, 7 = WK CHART, 8 = BACKTEST, 9 = SERVER IP
             helpCycle = (helpCycle + 1) % 10
-            
             when (helpCycle) {
                 0 -> setPlayerMode()
                 1 -> showHelp()
