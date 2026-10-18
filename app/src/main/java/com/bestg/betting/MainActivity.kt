@@ -107,6 +107,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.refreshAllButton).setOnClickListener {
             if (currentMode == "PREDICT") setPredictMode() else fetchLiveScores()
         }
+        // HIDDEN: Long-press the gold button to change the IP
+        findViewById<MaterialButton>(R.id.helpButton).setOnLongClickListener {
+            showServerIpDialog()
+            true
+        }
+
         findViewById<MaterialButton>(R.id.helpButton).setOnClickListener {
             if (currentMode == "PLAYER") {
                 setStatsMode()
@@ -132,6 +138,7 @@ class MainActivity : AppCompatActivity() {
             updateHelpButtonLabel()
         }
 
+        testConnection() // Trigger an immediate check
         setPredictMode()
         fetchLiveScores()
         startScoreUpdates()
@@ -324,7 +331,7 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call<TestResponse>, response: Response<TestResponse>) {
                 showLoading(false); resultText.text = "Server connected!"
             }
-            override fun onFailure(call: Call<TestResponse>, t: Throwable) { showLoading(false); resultText.text = "Connection failed: ${t.message}" }
+            override fun onFailure(call: Call<TestResponse>, t: Throwable) { showLoading(false); resultText.text = "❌ CONNECTION FAILED\n\nCould not reach $serverIp\n\nLong-press the gold button to change the IP." }
         })
     }
 
