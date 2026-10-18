@@ -196,19 +196,18 @@ class MainActivity : AppCompatActivity() {
             
             // 0 = PLAYER, 1 = HELP, 2 = ACCURACY, 3 = PRED LOG, 4 = LIVE PICKS,
             // 5 = ODDS, 6 = H2H, 7 = WK CHART, 8 = BACKTEST, 9 = SERVER IP
-            helpCycle = (helpCycle + 1) % 10
+            helpCycle = (helpCycle + 1) % 9
             
             when (helpCycle) {
-                0 -> setPlayerMode()
-                1 -> showHelp()
-                2 -> showAccuracy()
-                3 -> showPredictionLog()
-                4 -> showLivePredictions()
-                5 -> showOdds()
-                6 -> showHeadToHead()
-                7 -> showAccuracyByWeek()
-                8 -> showBacktest()
-                9 -> showServerIpDialog()
+                0 -> showHelp()
+                1 -> showAccuracy()
+                2 -> showPredictionLog()
+                3 -> showLivePredictions()
+                4 -> showOdds()
+                5 -> showHeadToHead()
+                6 -> showAccuracyByWeek()
+                7 -> showBacktest()
+                8 -> showServerIpDialog()
             }
             updateHelpButtonLabel()
         }
@@ -972,17 +971,27 @@ class MainActivity : AppCompatActivity() {
         gamesScroll.visibility = View.GONE
         swipeRefresh.visibility = View.VISIBLE
         resultText.visibility = View.VISIBLE
+        
+        // Show the spinners row
         spinnersRow.visibility = View.VISIBLE
-        playerSpinner.visibility = View.GONE
+        playerSpinner.visibility = View.VISIBLE
+        
+        // Ensure the Props/Preseason row is visible
+        (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.VISIBLE
+
         findViewById<MaterialButton>(R.id.helpButton).text = "HELP →"
         resultText.text = "Select a team"
+
         val numberedTeams = allNFLTeams.mapIndexed { index, team -> "${index + 1}. $team" }
         val teamAdapter = ArrayAdapter(this, R.layout.spinner_item, numberedTeams)
         teamAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
         teamSpinner.adapter = teamAdapter
         teamSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                currentTeam = allNFLTeams[position]; getTeamStats()
+                if (position in allNFLTeams.indices) {
+                    currentTeam = allNFLTeams[position]
+                    getTeamStats()
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -1628,7 +1637,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val labels = listOf(
-            "PLAYER", "HELP", "ACCURACY", "PRED LOG", "LIVE PICKS",
+            "HELP", "ACCURACY", "PRED LOG", "LIVE PICKS",
             "ODDS", "H2H", "WK CHART", "BACKTEST", "SERVER IP"
         )
         val nextLabel = labels[(helpCycle + 1) % labels.size]
