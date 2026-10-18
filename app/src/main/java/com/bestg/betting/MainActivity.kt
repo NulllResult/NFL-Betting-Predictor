@@ -70,7 +70,6 @@ class MainActivity : AppCompatActivity() {
 
         resultText.movementMethod = ScrollingMovementMethod()
 
-        // Swipe Right to go back
         val rootView = findViewById<View>(android.R.id.content)
         rootView.setOnTouchListener(object : View.OnTouchListener {
             private var downX = 0f
@@ -107,12 +106,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.refreshAllButton).setOnClickListener {
             if (currentMode == "PREDICT") setPredictMode() else fetchLiveScores()
         }
-        // HIDDEN: Long-press the gold button to change the IP
-        findViewById<MaterialButton>(R.id.helpButton).setOnLongClickListener {
-            showServerIpDialog()
-            true
-        }
-
+        
+        findViewById<MaterialButton>(R.id.helpButton).setOnLongClickListener { showServerIpDialog(); true }
         findViewById<MaterialButton>(R.id.helpButton).setOnClickListener {
             if (currentMode == "PLAYER") {
                 setStatsMode()
@@ -138,7 +133,6 @@ class MainActivity : AppCompatActivity() {
             updateHelpButtonLabel()
         }
 
-        testConnection() // Trigger an immediate check
         setPredictMode()
         fetchLiveScores()
         startScoreUpdates()
@@ -180,7 +174,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderScorePage() {
         scoreBannerFlipper.removeAllViews()
         if (latestScores.isEmpty()) {
-            val tv = TextView(this); tv.text = " No live games"; tv.setTextColor(0xFFFFB612.toInt()); tv.textSize = 13f
+            val tv = TextView(this); tv.text = " No live games"; tv.setTextColor(ContextCompat.getColor(this, R.color.steelers_gold)); tv.textSize = 13f
             scoreBannerFlipper.addView(tv); return
         }
         val sizePx = (22 * resources.displayMetrics.density).toInt()
@@ -193,7 +187,7 @@ class MainActivity : AppCompatActivity() {
             row.addView(awayLogo)
             
             val tv = TextView(this); tv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} (${game.detail.ifBlank { game.status }}) "
-            tv.setTextColor(0xFFFFB612.toInt()); tv.textSize = 13f; tv.maxLines = 1; tv.setPadding(8, 0, 8, 0)
+            tv.setTextColor(ContextCompat.getColor(this, R.color.steelers_gold)); tv.textSize = 13f; tv.maxLines = 1; tv.setPadding(8, 0, 8, 0)
             row.addView(tv)
             
             val homeLogo = ImageView(this); homeLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx); homeLogo.setImageResource(getTeamLogo(game.home)); homeLogo.scaleType = ImageView.ScaleType.FIT_CENTER
@@ -222,14 +216,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setPlayerMode() {
         currentMode = "PLAYER"
-        gamesScroll.visibility = View.GONE
         swipeRefresh.visibility = View.VISIBLE
-        resultText.visibility = View.VISIBLE
-        
-        // Change the gold button to say BACK
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.helpButton).text = "← BACK"
-        
-        resultText.text = "PLAYER MODE\n\nYou can view player stats by predicting a game, or swipe right to go back."
+        gamesScroll.visibility = View.GONE
+        resultText.text = "PLAYER MODE\n\nSwipe right to go back."
+        updateHelpButtonLabel()
     }
 
     private fun setPredictMode() {
@@ -246,7 +236,8 @@ class MainActivity : AppCompatActivity() {
                 for (g in games) {
                     val tv = TextView(this@MainActivity)
                     tv.text = "${g.away_full} @ ${g.home_full}"
-                    tv.setTextColor(0xFFFFFFFF.toInt()); tv.textSize = 18f; tv.setPadding(16, 16, 16, 16)
+                    tv.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    tv.textSize = 18f; tv.setPadding(16, 16, 16, 16)
                     tv.setOnClickListener {
                         currentTeam = g.home_full; opponentTeam = g.away_full
                         gamesScroll.visibility = View.GONE; swipeRefresh.visibility = View.VISIBLE; resultText.visibility = View.VISIBLE
@@ -302,54 +293,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHeadToHead() {
-        if (currentTeam.isEmpty() || opponentTeam.isEmpty()) {
-            resultText.text = "H2H needs a matchup.\n\nTap PREDICT, select a game, then tap the gold button 6 times to return here."
-            return
-        }
-        showLoading(true)
-        resultText.text = "Loading H2H: $currentTeam vs $opponentTeam..."
+        if (currentTeam.isEmpty() || opponentTeam.isEmpty()) { resultText.text = "Select a matchup in PREDICT mode first."; return }
+        resultText.text = "H2H: $currentTeam vs $opponentTeam\n(Loading stats...)"
         apiService.getTeamStats(currentTeam).enqueue(object : Callback<TeamStatsResponse> {
             override fun onResponse(call: Call<TeamStatsResponse>, response: Response<TeamStatsResponse>) {
-                val hs = response.body()
-                apiService.getTeamStats(opponentTeam).enqueue(object : Callback<TeamStatsResponse> {
-                    override fun onResponse(call: Call<TeamStatsResponse>, resp2: Response<TeamStatsResponse>) {
-                        val as_ = resp2.body()
-                        showLoading(false)
-                        val sb = StringBuilder()
-                        sb.append("HEAD-TO-HEAD\n")
-                        sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-                        sb.append("$currentTeam (Home)  vs  $opponentTeam (Away)\n\n")
-                        sb.append("POINTS FOR\n")
-                        sb.append("  $currentTeam: ${hs?.points_for ?: "N/A"}\n")
-                        sb.append("  $opponentTeam: ${as_?.points_for ?: "N/A"}\n\n")
-                        sb.append("POINTS AGAINST\n")
-                        sb.append("  $currentTeam: ${hs?.points_against ?: "N/A"}\n")
-                        sb.append("  $opponentTeam: ${as_?.points_against ?: "N/A"}\n\n")
-                        
-                        val homeDiff = (hs?.points_for ?: 0) - (hs?.points_against ?: 0)
-                        val awayDiff = (as_?.points_for ?: 0) - (as_?.points_against ?: 0)
-                        sb.append("POINT DIFFERENTIAL\n")
-                        sb.append("  $currentTeam: ${if (homeDiff >= 0) "+" else ""}$homeDiff\n")
-                        sb.append("  $opponentTeam: ${if (awayDiff >= 0) "+" else ""}$awayDiff\n\n")
-                        
-                        sb.append("EDGE\n")
-                        when {
-                            homeDiff > awayDiff -> sb.append("  $currentTeam by ${homeDiff - awayDiff} pts\n")
-                            awayDiff > homeDiff -> sb.append("  $opponentTeam by ${awayDiff - homeDiff} pts\n")
-                            else -> sb.append("  Even matchup\n")
-                        }
-                        resultText.text = sb.toString()
-                    }
-                    override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) {
-                        showLoading(false)
-                        resultText.text = "H2H failed: ${t.message}"
-                    }
-                })
+                val s = response.body()
+                resultText.text = "H2H: $currentTeam\nPF: ${s?.points_for}\nPA: ${s?.points_against}\n\nUse PREDICT for full matchup."
             }
-            override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) {
-                showLoading(false)
-                resultText.text = "H2H failed: ${t.message}"
-            }
+            override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) { resultText.text = "Error loading H2H" }
         })
     }
 
@@ -374,19 +325,12 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call<TestResponse>, response: Response<TestResponse>) {
                 showLoading(false); resultText.text = "Server connected!"
             }
-            override fun onFailure(call: Call<TestResponse>, t: Throwable) { showLoading(false); resultText.text = "❌ CONNECTION FAILED\n\nCould not reach $serverIp\n\nLong-press the gold button to change the IP." }
+            override fun onFailure(call: Call<TestResponse>, t: Throwable) { showLoading(false); resultText.text = "Connection failed: ${t.message}" }
         })
     }
 
     private fun showLoading(show: Boolean) {
         loadingIndicator.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) swipeRefresh.isRefreshing = false
-    }
-
-    private fun showPreseasonStats() {
-        resultText.text = "PRESEASON STATS\n\nSelect a player first."
-    }
-    private fun showPlayerProps() {
-        resultText.text = "PLAYER PROPS\n\nSelect a player first."
     }
 }
