@@ -6,13 +6,18 @@
     android:padding="8dp"
     android:background="#0A0F14">
 
-    <!-- SCORE BANNER -->
+    <!-- Score banner: horizontal container that gets populated with logos + text at runtime -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:background="#141922"
-        android:padding="8dp">
+        android:paddingStart="6dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
         <ViewFlipper
             android:id="@+id/scoreBannerFlipper"
             android:layout_width="match_parent"
@@ -21,44 +26,93 @@
             android:flipInterval="5000"
             android:inAnimation="@anim/slide_in_right"
             android:outAnimation="@anim/slide_out_left" />
+
+        <TextView
+            android:id="@+id/scoreBanner"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:text="Loading scores..." />
     </LinearLayout>
 
-    <!-- MAIN CONTENT AREA (Text or Cards) -->
-    <FrameLayout
+    <LinearLayout
+        android:id="@+id/spinnersRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp"
+        android:visibility="gone">
+
+        <Spinner
+            android:id="@+id/teamSpinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:minHeight="64dp"
+            android:layout_weight="1"
+            android:background="@drawable/spinner_background"
+            android:padding="4dp" />
+
+        <Spinner
+            android:id="@+id/playerSpinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:minHeight="64dp"
+            android:layout_weight="1"
+            android:background="@drawable/spinner_background"
+            android:padding="4dp"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/loadingIndicator"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:layout_gravity="center"
+        android:layout_marginTop="4dp"
+        android:visibility="gone" />
+
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="4dp">
 
-        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-            android:id="@+id/swipeRefresh"
+        <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:layout_height="match_parent"
+            android:background="#141922"
+            android:padding="8dp">
 
-            <ScrollView
+            <TextView
+                android:id="@+id/resultText"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="#141922"
-                android:padding="8dp">
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#E0E0E0"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp" />
+        </ScrollView>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-                <TextView
-                    android:id="@+id/resultText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text=""
-                    android:textColor="#F0F4FF"
-                    android:textSize="14sp"
-                    android:fontFamily="monospace"
-                    android:lineSpacingExtra="4dp" />
-            </ScrollView>
-        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    <LinearLayout
+        android:id="@+id/gamesContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginTop="4dp"
+        android:background="#060810"
+        android:padding="4dp"
+        android:visibility="visible">
 
         <ScrollView
             android:id="@+id/gamesScroll"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#060810"
-            android:visibility="gone">
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="6dp">
 
             <LinearLayout
                 android:id="@+id/gamesList"
@@ -66,21 +120,15 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
         </ScrollView>
+    </LinearLayout>
 
-        <ProgressBar
-            android:id="@+id/loadingIndicator"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:layout_gravity="center"
-            android:visibility="gone" />
-    </FrameLayout>
-
-    <!-- BUTTONS -->
+    <!-- Top row: TEST / STATS / PLAYER -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="6dp">
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/testButton"
             android:layout_width="0dp"
@@ -89,6 +137,7 @@
             android:text="TEST"
             android:textSize="11sp"
             android:backgroundTint="#1C222C" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/loadStatsButton"
             android:layout_width="0dp"
@@ -96,15 +145,18 @@
             android:layout_weight="1"
             android:text="STATS"
             android:textSize="11sp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="4dp"
             android:backgroundTint="#1C222C" />
+
     </LinearLayout>
 
+    <!-- Bottom row: PREDICT / REFRESH / CLEAR -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="4dp">
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/predictButton"
             android:layout_width="0dp"
@@ -113,15 +165,17 @@
             android:text="PREDICT"
             android:textSize="11sp"
             android:backgroundTint="#1C222C" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/refreshAllButton"
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
             android:text="REFRESH"
-            android:textSize="9sp"
-            android:layout_marginStart="8dp"
+            android:textSize="11sp"
+            android:layout_marginStart="4dp"
             android:backgroundTint="#1C222C" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/clearButton"
             android:layout_width="0dp"
@@ -129,17 +183,25 @@
             android:layout_weight="1"
             android:text="CLEAR"
             android:textSize="11sp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="4dp"
             android:backgroundTint="#1C222C" />
     </LinearLayout>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/helpButton"
+    <!-- HELP button -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:layout_marginTop="8dp"
-        android:text="PLAYER →"
-        android:textSize="14sp"
-        android:backgroundTint="#FFB612" />
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/helpButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="HELP →"
+            android:textSize="11sp"
+            android:backgroundTint="#FFB612" />
+    </LinearLayout>
 
 </LinearLayout>
