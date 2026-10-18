@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
     private var currentTeam = ""
     private var currentPlayer = ""
     private var opponentTeam = ""
-    private var serverIp = "10.0.0.60"
+    private var serverIp = "10.0.0.60" // Default IP
     private val inFlightCalls = mutableListOf<retrofit2.Call<*>>()
 
     private var allNFLTeams = listOf(
@@ -181,7 +181,6 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.clearButton).setOnClickListener { resultText.text = "" }
         findViewById<MaterialButton>(R.id.helpButton).setOnClickListener {
-            // If in PLAYER mode, act as BACK
             if (currentMode == "PLAYER") {
                 (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
                 setStatsMode()
@@ -190,12 +189,14 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
+            // Reset to text view mode
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
             
-            // 0 = PLAYER, 1 = HELP, 2 = ACCURACY ... 11 = SERVER IP
-            helpCycle = (helpCycle + 1) % 12
+            // 0 = PLAYER, 1 = HELP, 2 = ACCURACY, 3 = PRED LOG, 4 = LIVE PICKS,
+            // 5 = ODDS, 6 = H2H, 7 = WK CHART, 8 = BACKTEST, 9 = SERVER IP
+            helpCycle = (helpCycle + 1) % 10
             
             when (helpCycle) {
                 0 -> setPlayerMode()
@@ -207,9 +208,7 @@ class MainActivity : AppCompatActivity() {
                 6 -> showHeadToHead()
                 7 -> showAccuracyByWeek()
                 8 -> showBacktest()
-                9 -> autoDetectServer()
-                10 -> toggleNotifications()
-                11 -> showServerIpDialog()
+                9 -> showServerIpDialog()
             }
             updateHelpButtonLabel()
         }
@@ -1621,25 +1620,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateHelpButtonLabel() {
         val helpBtn = findViewById<MaterialButton>(R.id.helpButton)
-        
-        // If we are in PLAYER mode, the button should say BACK
         if (currentMode == "PLAYER") {
             helpBtn.text = "← BACK"
             return
         }
-        
         val labels = listOf(
             "PLAYER", "HELP", "ACCURACY", "PRED LOG", "LIVE PICKS",
-            "ODDS", "H2H", "WK CHART",
-            "BACKTEST", "FIND SERVER", "NOTIFS", "SERVER IP"
+            "ODDS", "H2H", "WK CHART", "BACKTEST", "SERVER IP"
         )
         val nextLabel = labels[(helpCycle + 1) % labels.size]
         helpBtn.text = "$nextLabel →"
     }
-
-
-
-
 
     private fun showHeadToHead() {
         if (currentTeam.isEmpty() || opponentTeam.isEmpty()) {
