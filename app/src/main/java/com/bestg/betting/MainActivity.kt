@@ -1684,6 +1684,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+
     private fun showPreseasonStats() {
         if (currentPlayer.isEmpty() || currentTeam.isEmpty()) {
             resultText.text = "Select a player first in PLAYER mode, then tap HELP"
