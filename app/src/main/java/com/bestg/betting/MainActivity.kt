@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playerSpinner: Spinner
     private lateinit var resultText: TextView
     private lateinit var scoreBanner: TextView
-    private lateinit var scoreBannerContainer: LinearLayout
+    private lateinit var scoreBannerFlipper: android.widget.ViewFlipper
     private lateinit var loadingIndicator: ProgressBar
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var gamesContainer: LinearLayout
@@ -114,7 +114,7 @@ class MainActivity : AppCompatActivity() {
         playerSpinner = findViewById(R.id.playerSpinner)
         resultText = findViewById(R.id.resultText)
         scoreBanner = findViewById(R.id.scoreBanner)
-        scoreBannerContainer = findViewById(R.id.scoreBannerContainer)
+        scoreBannerFlipper = findViewById(R.id.scoreBannerFlipper)
         loadingIndicator = findViewById(R.id.loadingIndicator)
         swipeRefresh = findViewById(R.id.swipeRefresh)
         gamesContainer = findViewById(R.id.gamesContainer)
@@ -139,7 +139,6 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.testButton).setOnClickListener { testConnection() }
         findViewById<MaterialButton>(R.id.loadStatsButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setStatsMode() }
-        findViewById<MaterialButton>(R.id.loadPlayerButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setPlayerMode() }
         findViewById<MaterialButton>(R.id.predictButton).setOnClickListener { findViewById<MaterialButton>(R.id.refreshAllButton).text = "REFRESH"; setPredictMode() }
         findViewById<MaterialButton>(R.id.refreshAllButton).setOnClickListener {
             if (currentMode == "PREDICT" && gamesContainer.visibility == View.GONE) {
@@ -163,7 +162,7 @@ class MainActivity : AppCompatActivity() {
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
-            helpCycle = (helpCycle + 1) % 11
+            helpCycle = (helpCycle + 1) % 13
             when (helpCycle) {
                 0 -> showHelp()
                 1 -> showAccuracy()
@@ -216,7 +215,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         stopScoreUpdates()
-        stopScoreRotation()
+        if (::scoreBannerFlipper.isInitialized) scoreBannerFlipper.stopFlipping()
         // Snapshot current UI state to ViewModel — survives rotation
         viewModel.setMode(currentMode)
         viewModel.setCurrentTeam(currentTeam)
@@ -417,7 +416,7 @@ class MainActivity : AppCompatActivity() {
                         scoreBanner.text = "No live games"
                     } else {
                         renderScorePage()
-                        startScoreRotation(scores.size)
+                        
                     }
                 }
             }
@@ -429,67 +428,69 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderScorePage() {
         val scores = latestScores
-        scoreBannerContainer.removeAllViews()
-
+        scoreBannerFlipper.removeAllViews()
+        
         if (scores.isEmpty()) {
             val tv = TextView(this)
-            tv.text = "No live games"
-            tv.setTextColor(ContextCompat.getColor(this, R.color.text_score_gold))
-            tv.textSize = 12f
-            scoreBannerContainer.addView(tv)
+            tv.text = " No live games"
+            tv.setTextColor(ContextCompat.getColor(this, R.color.steelers_gold))
+            tv.textSize = 13f
+            tv.gravity = android.view.Gravity.CENTER_VERTICAL
+            scoreBannerFlipper.addView(tv)
             return
         }
 
-        val perPage = 2
-        val totalPages = (scores.size + perPage - 1) / perPage
-        val page = scorePage % totalPages
-        val start = page * perPage
-        val end = minOf(start + perPage, scores.size)
-        val slice = scores.subList(start, end)
-
         val sizePx = (22 * resources.displayMetrics.density).toInt()
 
-        for ((i, game) in slice.withIndex()) {
-            if (i > 0) {
-                val sep = TextView(this)
-                sep.text = "   "
-                scoreBannerContainer.addView(sep)
-            }
+        // Build a full-width horizontal row for each game
+        for (game in scores) {
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = android.view.Gravity.CENTER_VERTICAL
+            row.layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
 
-            // Away logo
             val awayLogo = ImageView(this)
             awayLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
             awayLogo.setImageResource(getTeamLogo(game.away))
             awayLogo.scaleType = ImageView.ScaleType.FIT_CENTER
-            scoreBannerContainer.addView(awayLogo)
+            row.addView(awayLogo)
 
-            // Score text
-            val scoreTv = TextView(this)
+            val tv = TextView(this)
             val detail = game.detail.ifBlank { game.status }
-            scoreTv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} ($detail) "
-            scoreTv.setTextColor(ContextCompat.getColor(this, R.color.text_score_gold))
-            scoreTv.textSize = 12f
-            scoreTv.maxLines = 1
-            scoreTv.ellipsize = android.text.TextUtils.TruncateAt.END
-            scoreBannerContainer.addView(scoreTv)
+            tv.text = " ${game.away} ${game.away_score}-${game.home_score} ${game.home} ($detail) "
+            tv.setTextColor(ContextCompat.getColor(this, R.color.steelers_gold))
+            tv.textSize = 13f
+            tv.maxLines = 1
+            tv.ellipsize = android.text.TextUtils.TruncateAt.END
+            tv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            row.addView(tv)
 
-            // Home logo
             val homeLogo = ImageView(this)
             homeLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
             homeLogo.setImageResource(getTeamLogo(game.home))
             homeLogo.scaleType = ImageView.ScaleType.FIT_CENTER
-            scoreBannerContainer.addView(homeLogo)
+            row.addView(homeLogo)
+
+            scoreBannerFlipper.addView(row)
+        }
+
+        // Start the flipper
+        if (scores.size > 1) {
+            scoreBannerFlipper.startFlipping()
         }
     }
 
     private fun startScoreRotation(totalGames: Int) {
         // Stop any existing rotation
         scoreRotator?.let { scoreHandler.removeCallbacks(it) }
-        if (totalGames <= 2) return   // no need to rotate if only 1 page
+        if (totalGames <= 1) return   // no need to rotate if only 1 page
 
         val runnable = object : Runnable {
             override fun run() {
-                scorePage = (scorePage + 1) % ((latestScores.size + 1) / 2)
+                scorePage = (scorePage + 1) % maxOf(1, latestScores.size)
                 renderScorePage()
                 scoreHandler.postDelayed(this, 6000)
             }

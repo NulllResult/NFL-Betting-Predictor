@@ -18,19 +18,14 @@
         android:paddingTop="4dp"
         android:paddingBottom="4dp">
 
-        <HorizontalScrollView
+        <ViewFlipper
+            android:id="@+id/scoreBannerFlipper"
             android:layout_width="match_parent"
             android:layout_height="36dp"
-            android:scrollbars="none"
-            android:fillViewport="true">
-
-            <LinearLayout
-                android:id="@+id/scoreBannerContainer"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical" />
-        </HorizontalScrollView>
+            android:autoStart="true"
+            android:flipInterval="5000"
+            android:inAnimation="@anim/slide_in_right"
+            android:outAnimation="@anim/slide_out_left" />
 
         <TextView
             android:id="@+id/scoreBanner"
@@ -215,7 +210,7 @@
             android:layout_height="48dp"
             android:text="HELP →"
             android:textSize="11sp"
-            android:backgroundTint="#FFB612" />
+            android:backgroundTint="#FFCC00" />
     </LinearLayout>
 
 </LinearLayout>

@@ -51,4 +51,14 @@
     <color name="value_badge">#FF00FF88</color>
     <color name="warning_badge">#FFFFB612</color>
     <color name="section_header">#FFB612</color>
+
+    <color name="steelers_gold_bright">#FFFFCC00</color>
+    <color name="steelers_gold_dim">#FF8A6F00</color>
+    <color name="steelers_black_rich">#FF060810</color>
+    <color name="steelers_surface_1">#FF10131A</color>
+    <color name="steelers_surface_2">#FF181C26</color>
+    <color name="steelers_surface_3">#FF202430</color>
+    <color name="steelers_border">#FF2A2F3D</color>
+    <color name="steelers_accent_red">#FFC60C30</color>
+    <color name="steelers_accent_blue">#FF00539B</color>
 </resources>
