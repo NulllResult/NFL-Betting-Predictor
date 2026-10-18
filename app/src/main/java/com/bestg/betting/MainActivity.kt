@@ -188,7 +188,7 @@ class MainActivity : AppCompatActivity() {
                 updateHelpButtonLabel()
                 return@setOnClickListener
             }
-            helpCycle = (helpCycle + 1) % 10
+            helpCycle = (helpCycle + 1) % 9
             when (helpCycle) {
                 0 -> setPlayerMode()
                 1 -> showHelp()
@@ -196,10 +196,9 @@ class MainActivity : AppCompatActivity() {
                 3 -> showPredictionLog()
                 4 -> showLivePredictions()
                 5 -> showOdds()
-                6 -> showHeadToHead()
-                7 -> showAccuracyByWeek()
-                8 -> showBacktest()
-                9 -> showServerIpDialog()
+                6 -> showAccuracyByWeek()
+                7 -> showBacktest()
+                8 -> showServerIpDialog()
             }
             updateHelpButtonLabel()
         }
@@ -1617,7 +1616,7 @@ class MainActivity : AppCompatActivity() {
         }
         val labels = listOf(
             "PLAYER", "HELP", "ACCURACY", "PRED LOG", "LIVE PICKS",
-            "ODDS", "H2H", "WK CHART", "BACKTEST", "SERVER IP"
+            "ODDS", "WK CHART", "BACKTEST", "SERVER IP"
         )
         val nextLabel = labels[(helpCycle + 1) % labels.size]
         helpBtn.text = "$nextLabel →"
