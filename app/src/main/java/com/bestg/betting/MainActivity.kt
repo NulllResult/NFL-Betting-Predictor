@@ -222,10 +222,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun setPlayerMode() {
         currentMode = "PLAYER"
-        swipeRefresh.visibility = View.VISIBLE
         gamesScroll.visibility = View.GONE
-        resultText.text = "PLAYER MODE\n\nSwipe right to go back."
-        updateHelpButtonLabel()
+        swipeRefresh.visibility = View.VISIBLE
+        resultText.visibility = View.VISIBLE
+        
+        // Change the gold button to say BACK
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.helpButton).text = "← BACK"
+        
+        resultText.text = "PLAYER MODE\n\nYou can view player stats by predicting a game, or swipe right to go back."
     }
 
     private fun setPredictMode() {

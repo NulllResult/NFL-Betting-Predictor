@@ -119,7 +119,7 @@
             android:layout_height="48dp"
             android:layout_weight="1"
             android:text="REFRESH"
-            android:textSize="11sp"
+            android:textSize="9sp"
             android:layout_marginStart="8dp"
             android:backgroundTint="#1C222C" />
         <com.google.android.material.button.MaterialButton
