@@ -61,4 +61,10 @@
     <color name="steelers_border">#FF2A2F3D</color>
     <color name="steelers_accent_red">#FFC60C30</color>
     <color name="steelers_accent_blue">#FF00539B</color>
+
+    <!-- STEELERS CORE -->
+    <color name="steelers_black_deep">#0A0F14</color>
+    <color name="steelers_steel">#A5ACAF</color>
+
+    <!-- SEMANTIC OVERRIDES -->
 </resources>

@@ -28,6 +28,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import android.widget.ImageView
 import android.text.method.ScrollingMovementMethod
@@ -122,6 +123,28 @@ class MainActivity : AppCompatActivity() {
         gamesList = findViewById(R.id.gamesList)
 
         resultText.movementMethod = ScrollingMovementMethod()
+
+        // Swipe Right (Left-to-Right) to exit PLAYER mode
+        // Swipe Right (Left-to-Right) to exit PLAYER mode — attach to ROOT so ScrollView doesn't eat it
+        val rootView = findViewById<View>(android.R.id.content)
+        rootView.setOnTouchListener(object : View.OnTouchListener {
+            private var downX = 0f
+            override fun onTouch(v: View, event: android.view.MotionEvent): Boolean {
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> downX = event.x
+                    android.view.MotionEvent.ACTION_UP -> {
+                        val upX = event.x
+                        if (currentMode == "PLAYER" && (upX - downX) > 250) {
+                            (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
+                            currentMode = "STATS"
+                            setStatsMode()
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
+        })
         setupRetrofit()
         fetchTeamsFromServer()
         playerSpinner.visibility = View.GONE
@@ -158,11 +181,12 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.clearButton).setOnClickListener { resultText.text = "" }
         findViewById<MaterialButton>(R.id.helpButton).setOnClickListener {
+
             // Always hide games container so we can show text
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
-            helpCycle = (helpCycle + 1) % 13
+            helpCycle = (helpCycle + 1) % 14
             when (helpCycle) {
                 0 -> showHelp()
                 1 -> showAccuracy()
@@ -966,7 +990,9 @@ class MainActivity : AppCompatActivity() {
         resultText.visibility = View.VISIBLE
         spinnersRow.visibility = View.VISIBLE
         playerSpinner.visibility = View.VISIBLE
-        resultText.text = "Select a team, then a player"
+        resultText.text = "Select a Team, then a Player\n\nTap the PROPS or PRESEASON buttons below the dropdowns."
+
+
         val numbered = allNFLTeams.mapIndexed { i, t -> "${i + 1}. $t" }
         val adapter = ArrayAdapter(this, R.layout.spinner_item, numbered)
         adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
@@ -979,6 +1005,36 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        // Add Props/Preseason buttons if they don't exist yet
+        val parent = spinnersRow.parent as? LinearLayout
+        if (parent != null && parent.findViewWithTag<View>("playerExtrasRow") == null) {
+            val extrasRow = LinearLayout(this)
+            extrasRow.tag = "playerExtrasRow"
+            extrasRow.orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(0, 16, 0, 0)
+            extrasRow.layoutParams = lp
+
+            val propsBtn = com.google.android.material.button.MaterialButton(this)
+            propsBtn.text = "PROPS"
+            propsBtn.textSize = 12f
+            propsBtn.layoutParams = LinearLayout.LayoutParams(0, 110, 1f)
+            propsBtn.setOnClickListener { showPlayerProps() }
+            extrasRow.addView(propsBtn)
+
+            val psBtn = com.google.android.material.button.MaterialButton(this)
+            psBtn.text = "PRESEASON"
+            psBtn.textSize = 12f
+            val lp2 = LinearLayout.LayoutParams(0, 110, 1f)
+            lp2.setMargins(8, 0, 0, 0)
+            psBtn.layoutParams = lp2
+            psBtn.setOnClickListener { showPreseasonStats() }
+            extrasRow.addView(psBtn)
+
+            val spinnersIndex = parent.indexOfChild(spinnersRow)
+            parent.addView(extrasRow, spinnersIndex + 1)
         }
     }
 
@@ -1056,7 +1112,7 @@ class MainActivity : AppCompatActivity() {
                     val bg = android.graphics.drawable.GradientDrawable()
                     if (g.is_live == true) {
                         bg.setColor(ContextCompat.getColor(this@MainActivity, R.color.card_live_bg))
-                        bg.setStroke(3, ContextCompat.getColor(this@MainActivity, R.color.card_live_stroke))
+                        bg.setStroke(3, ContextCompat.getColor(this@MainActivity, R.color.steelers_gold_bright))
                     } else if (g.completed == true) {
                         bg.setColor(ContextCompat.getColor(this@MainActivity, R.color.card_completed_bg))
                     } else {

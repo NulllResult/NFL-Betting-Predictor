@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="8dp"
-    android:background="#0B0F19">
+    android:background="#0A0F14">
 
     <!-- Score banner: horizontal container that gets populated with logos + text at runtime -->
     <LinearLayout
@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#1A1A1A"
+        android:background="#141922"
         android:paddingStart="6dp"
         android:paddingEnd="8dp"
         android:paddingTop="4dp"
@@ -81,7 +81,7 @@
         <ScrollView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#1A1A1A"
+            android:background="#141922"
             android:padding="8dp">
 
             <TextView
@@ -103,7 +103,7 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:layout_marginTop="4dp"
-        android:background="#000000"
+        android:background="#060810"
         android:padding="4dp"
         android:visibility="visible">
 
@@ -136,7 +136,7 @@
             android:layout_weight="1"
             android:text="TEST"
             android:textSize="11sp"
-            android:backgroundTint="#1A1A1A" />
+            android:backgroundTint="#1C222C" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/loadStatsButton"
@@ -146,17 +146,8 @@
             android:text="STATS"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#1A1A1A" />
+            android:backgroundTint="#1C222C" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/loadPlayerButton"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="PLAYER"
-            android:textSize="11sp"
-            android:layout_marginStart="4dp"
-            android:backgroundTint="#1A1A1A" />
     </LinearLayout>
 
     <!-- Bottom row: PREDICT / REFRESH / CLEAR -->
@@ -173,7 +164,7 @@
             android:layout_weight="1"
             android:text="PREDICT"
             android:textSize="11sp"
-            android:backgroundTint="#1A1A1A" />
+            android:backgroundTint="#1C222C" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/refreshAllButton"
@@ -183,7 +174,7 @@
             android:text="REFRESH"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#1A1A1A" />
+            android:backgroundTint="#1C222C" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/clearButton"
@@ -193,7 +184,7 @@
             android:text="CLEAR"
             android:textSize="11sp"
             android:layout_marginStart="4dp"
-            android:backgroundTint="#1A1A1A" />
+            android:backgroundTint="#1C222C" />
     </LinearLayout>
 
     <!-- HELP button -->
@@ -210,7 +201,7 @@
             android:layout_height="48dp"
             android:text="HELP →"
             android:textSize="11sp"
-            android:backgroundTint="#FFCC00" />
+            android:backgroundTint="#FFB612" />
     </LinearLayout>
 
 </LinearLayout>
