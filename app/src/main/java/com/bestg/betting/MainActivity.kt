@@ -448,9 +448,10 @@ class MainActivity : AppCompatActivity() {
             row.orientation = LinearLayout.HORIZONTAL
             row.gravity = android.view.Gravity.CENTER_VERTICAL
             row.layoutParams = android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
             )
+            row.gravity = android.view.Gravity.CENTER_VERTICAL
 
             val awayLogo = ImageView(this)
             awayLogo.layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
@@ -466,6 +467,7 @@ class MainActivity : AppCompatActivity() {
             tv.maxLines = 1
             tv.ellipsize = android.text.TextUtils.TruncateAt.END
             tv.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            tv.setPadding(8, 0, 8, 0)
             row.addView(tv)
 
             val homeLogo = ImageView(this)
