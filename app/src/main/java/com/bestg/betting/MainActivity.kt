@@ -90,7 +90,6 @@ class MainActivity : AppCompatActivity() {
         })
 
         setupRetrofit()
-        testConnection()
 
         swipeRefresh.setOnRefreshListener { 
             when (currentMode) {
@@ -299,15 +298,54 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHeadToHead() {
-        if (currentTeam.isEmpty() || opponentTeam.isEmpty()) { resultText.text = "Select a matchup in PREDICT mode first."; return }
-        resultText.text = "H2H: $currentTeam vs $opponentTeam\n(Loading stats...)"
-        // Simplified H2H to avoid crashes
+        if (currentTeam.isEmpty() || opponentTeam.isEmpty()) {
+            resultText.text = "H2H needs a matchup.\n\nTap PREDICT, select a game, then tap the gold button 6 times to return here."
+            return
+        }
+        showLoading(true)
+        resultText.text = "Loading H2H: $currentTeam vs $opponentTeam..."
         apiService.getTeamStats(currentTeam).enqueue(object : Callback<TeamStatsResponse> {
             override fun onResponse(call: Call<TeamStatsResponse>, response: Response<TeamStatsResponse>) {
-                val s = response.body()
-                resultText.text = "H2H: $currentTeam\nPF: ${s?.points_for}\nPA: ${s?.points_against}\n\nUse PREDICT for full matchup."
+                val hs = response.body()
+                apiService.getTeamStats(opponentTeam).enqueue(object : Callback<TeamStatsResponse> {
+                    override fun onResponse(call: Call<TeamStatsResponse>, resp2: Response<TeamStatsResponse>) {
+                        val as_ = resp2.body()
+                        showLoading(false)
+                        val sb = StringBuilder()
+                        sb.append("HEAD-TO-HEAD\n")
+                        sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+                        sb.append("$currentTeam (Home)  vs  $opponentTeam (Away)\n\n")
+                        sb.append("POINTS FOR\n")
+                        sb.append("  $currentTeam: ${hs?.points_for ?: "N/A"}\n")
+                        sb.append("  $opponentTeam: ${as_?.points_for ?: "N/A"}\n\n")
+                        sb.append("POINTS AGAINST\n")
+                        sb.append("  $currentTeam: ${hs?.points_against ?: "N/A"}\n")
+                        sb.append("  $opponentTeam: ${as_?.points_against ?: "N/A"}\n\n")
+                        
+                        val homeDiff = (hs?.points_for ?: 0) - (hs?.points_against ?: 0)
+                        val awayDiff = (as_?.points_for ?: 0) - (as_?.points_against ?: 0)
+                        sb.append("POINT DIFFERENTIAL\n")
+                        sb.append("  $currentTeam: ${if (homeDiff >= 0) "+" else ""}$homeDiff\n")
+                        sb.append("  $opponentTeam: ${if (awayDiff >= 0) "+" else ""}$awayDiff\n\n")
+                        
+                        sb.append("EDGE\n")
+                        when {
+                            homeDiff > awayDiff -> sb.append("  $currentTeam by ${homeDiff - awayDiff} pts\n")
+                            awayDiff > homeDiff -> sb.append("  $opponentTeam by ${awayDiff - homeDiff} pts\n")
+                            else -> sb.append("  Even matchup\n")
+                        }
+                        resultText.text = sb.toString()
+                    }
+                    override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) {
+                        showLoading(false)
+                        resultText.text = "H2H failed: ${t.message}"
+                    }
+                })
             }
-            override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) { resultText.text = "Error loading H2H" }
+            override fun onFailure(call: Call<TeamStatsResponse>, t: Throwable) {
+                showLoading(false)
+                resultText.text = "H2H failed: ${t.message}"
+            }
         })
     }
 
@@ -328,17 +366,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun testConnection() {
         showLoading(true)
-        resultText.text = "Connecting to http://$serverIp:5000...\n\nIf this stays here, the app cannot reach your PC.\n\nLong-press the big gold button to change the IP."
-        
         apiService.testConnection().enqueue(object : Callback<TestResponse> {
             override fun onResponse(call: Call<TestResponse>, response: Response<TestResponse>) {
-                showLoading(false)
-                resultText.text = "✅ SERVER CONNECTED\nIP: $serverIp\n\nLoading games..."
+                showLoading(false); resultText.text = "Server connected!"
             }
-            override fun onFailure(call: Call<TestResponse>, t: Throwable) {
-                showLoading(false)
-                resultText.text = "❌ CONNECTION FAILED\nIP: $serverIp\n\nError: ${t.message}\n\nLong-press the big gold button to change IP."
-            }
+            override fun onFailure(call: Call<TestResponse>, t: Throwable) { showLoading(false); resultText.text = "❌ CONNECTION FAILED\n\nCould not reach $serverIp\n\nLong-press the gold button to change the IP." }
         })
     }
 
