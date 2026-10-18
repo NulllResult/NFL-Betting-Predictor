@@ -193,7 +193,10 @@ class MainActivity : AppCompatActivity() {
             gamesContainer.visibility = View.GONE
             swipeRefresh.visibility = View.VISIBLE
             resultText.visibility = View.VISIBLE
+            
+            // 0 = PLAYER, 1 = HELP, 2 = ACCURACY ... 11 = SERVER IP
             helpCycle = (helpCycle + 1) % 12
+            
             when (helpCycle) {
                 0 -> setPlayerMode()
                 1 -> showHelp()
@@ -1618,18 +1621,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateHelpButtonLabel() {
         val helpBtn = findViewById<MaterialButton>(R.id.helpButton)
+        
+        // If we are in PLAYER mode, the button should say BACK
+        if (currentMode == "PLAYER") {
+            helpBtn.text = "← BACK"
+            return
+        }
+        
         val labels = listOf(
-            "HELP",
-            "ACCURACY",
-            "PRED LOG",
-            "LIVE PICKS",
-            "ODDS",
-            "PROPS",
-            "SERVER IP"
+            "PLAYER", "HELP", "ACCURACY", "PRED LOG", "LIVE PICKS",
+            "ODDS", "H2H", "WK CHART",
+            "BACKTEST", "FIND SERVER", "NOTIFS", "SERVER IP"
         )
         val nextLabel = labels[(helpCycle + 1) % labels.size]
-        helpBtn.text = "$nextLabel \u2192"
+        helpBtn.text = "$nextLabel →"
     }
+
+
 
 
 
