@@ -408,9 +408,21 @@ def _update_calibration_table_from_history():
     buckets = {(0, 50): [], (50, 60): [], (60, 70): [], (70, 80): [], (80, 100): []}
     for e in resolved:
         conf = e.get("confidence") or 0
-        for key in buckets:
-            if key[0] <= conf < key[1]:
-                buckets[key].append(1 if e.get("correct") else 0)
+        # Recency weight: last 4 weeks ×3, everything else ×1
+        wk = e.get("week") or 0
+        try:
+            wk = int(str(wk).replace("W", ""))
+        except Exception:
+            wk = 0
+        try:
+            current_week = int(str(load_current_week()).replace("W", ""))
+        except Exception:
+            current_week = 18
+        weight = 3.0 if (current_week - wk) <= 4 else 1.0
+
+        for (lo, hi) in buckets:
+            if lo <= conf < hi:
+                buckets[(lo, hi)].append((1 if e.get("correct") else 0, weight))
                 break
 
     global CALIBRATION_TABLE
@@ -2624,6 +2636,20 @@ def calibration():
                 break
 
     empirical = {}
+    for (lo, hi), entries in buckets.items():
+        if not entries:
+            continue
+        total_w = sum(w for _, w in entries)
+        wins_w = sum(c for c, _ in entries if c == 1 for _ in [w])  # weighted wins
+        wins_w = sum(c * w for c, w in entries)
+        acc = (wins_w / total_w * 100) if total_w > 0 else 0
+        key = (lo, hi)
+        empirical[f"{lo}-{hi}"] = {
+            "acc": round(acc, 1),
+            "n": len(entries),
+            "weighted_n": round(total_w, 1),
+            "table_value": round(CALIBRATION_TABLE.get(key, 0.52) * 100, 1)
+        }
     for key, results in buckets.items():
         empirical[f"{key[0]}-{key[1]}"] = {
             "samples": len(results),
@@ -2872,6 +2898,26 @@ def ml_predict():
             advanced_adjustments.append(f"Coaching: {net_coach:+.1f}%")
     except Exception:
         pass
+
+    # ───── ACCURACY IMPROVEMENTS ─────
+    is_no_pick = False
+    no_pick_reasons = []
+
+    # MARKET_DISAGREEMENT_FILTER: if model and book disagree by >15%, it's a blind spot
+    if market_home_prob is not None:
+        disagreement = abs(ml_prob_pct - market_home_prob)
+        if disagreement > 15.0:
+            is_no_pick = True
+            no_pick_reasons.append(f"Model/Market disagreement {disagreement:.1f}% (>15% threshold)")
+            advanced_adjustments.append(f"⚠ NO PICK: model vs market disagree {disagreement:.1f}%")
+
+    # SIGNAL_CONFLICT_PENALTY: if 2+ adjustments push opposite directions, penalize
+    pos_count = sum(1 for a in advanced_adjustments if ": +" in a)
+    neg_count = sum(1 for a in advanced_adjustments if ": -" in a)
+    if pos_count >= 1 and neg_count >= 1 and len(advanced_adjustments) >= 2:
+        blended = round(blended - 8.0, 1)
+        advanced_adjustments.append(f"⚠ Signal conflict penalty: -8.0% (had {pos_count}+ / {neg_count}-)")
+        no_pick_reasons.append(f"Conflicting signals ({pos_count} positive, {neg_count} negative)")
 
     # Clamp blended to sane range
     blended = max(1.0, min(99.0, blended))
