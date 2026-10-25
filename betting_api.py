@@ -2853,6 +2853,8 @@ def ml_predict():
         model_weight = 1.0 - market_weight
         blended = round(ml_prob_pct * model_weight + market_home_prob * market_weight, 1)
         edge = round(ml_prob_pct - market_home_prob, 1)
+        # Sanity clamp: Model shouldn't differ from market by more than 35%
+        edge = max(-35.0, min(35.0, edge))
     else:
         blended = round(ml_prob_pct, 1)
 
@@ -3020,6 +3022,13 @@ def ml_predict():
     spread_mult, total_delta = slot_adjustments(slot)
     blended_spread = blended_spread * spread_mult
     total = int(round(total + total_delta))
+
+    # CRITICAL FIX: Ensure the score perfectly matches the predicted winner
+    # If winner is team1, s1 MUST be greater than s2, and vice versa.
+    if winner == team1 and s1 <= s2:
+        s1 = s2 + 1
+    elif winner == team2 and s2 <= s1:
+        s2 = s1 + 1
 
     # Spread display: .0 or .5
     bs = abs(blended_spread)
