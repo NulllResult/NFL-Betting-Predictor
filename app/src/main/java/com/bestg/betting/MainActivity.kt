@@ -134,12 +134,17 @@ class MainActivity : AppCompatActivity() {
                     android.view.MotionEvent.ACTION_DOWN -> downX = event.x
                     android.view.MotionEvent.ACTION_UP -> {
                         val upX = event.x
-                        if (currentMode == "PLAYER" && (upX - downX) > 250) {
-                            // Safely hide the extras row without throwing a null pointer exception
-                            val parent = spinnersRow.parent as? ViewGroup
-                            parent?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
-                            setStatsMode()
-                            return true
+                        if ((upX - downX) > 250) {
+                            if (currentMode == "PLAYER") {
+                                val parent = spinnersRow.parent as? ViewGroup
+                                parent?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
+                                setStatsMode()
+                                return true
+                            } else if (currentMode == "PREDICT") {
+                                // Swipe right on the games list acts as "BACK" to STATS
+                                setStatsMode()
+                                return true
+                            }
                         }
                     }
                 }
@@ -1064,6 +1069,8 @@ class MainActivity : AppCompatActivity() {
         spinnersRow.visibility = View.GONE
         swipeRefresh.visibility = View.GONE
         gamesContainer.visibility = View.VISIBLE
+        gamesScroll.visibility = View.VISIBLE
+        resultText.visibility = View.GONE
         gamesList.removeAllViews()
 
         // Pull-to-refresh on the games list
