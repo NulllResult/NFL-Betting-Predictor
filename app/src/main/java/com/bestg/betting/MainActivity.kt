@@ -135,8 +135,9 @@ class MainActivity : AppCompatActivity() {
                     android.view.MotionEvent.ACTION_UP -> {
                         val upX = event.x
                         if (currentMode == "PLAYER" && (upX - downX) > 250) {
-                            (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
-                            currentMode = "STATS"
+                            // Safely hide the extras row without throwing a null pointer exception
+                            val parent = spinnersRow.parent as? ViewGroup
+                            parent?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
                             setStatsMode()
                             return true
                         }
@@ -976,6 +977,9 @@ class MainActivity : AppCompatActivity() {
         spinnersRow.visibility = View.VISIBLE
         playerSpinner.visibility = View.VISIBLE
         
+        // CRITICAL FIX: Ensure the Props/Preseason row is hidden or visible safely
+        (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.GONE
+        
         // Ensure the Props/Preseason row is visible
         (spinnersRow.parent as? ViewGroup)?.findViewWithTag<View>("playerExtrasRow")?.visibility = View.VISIBLE
 
@@ -1000,6 +1004,7 @@ class MainActivity : AppCompatActivity() {
     private fun setPlayerMode() {
         currentMode = "PLAYER"
         gamesContainer.visibility = View.GONE
+        gamesScroll.visibility = View.GONE
         swipeRefresh.visibility = View.VISIBLE
         resultText.visibility = View.VISIBLE
         spinnersRow.visibility = View.VISIBLE
