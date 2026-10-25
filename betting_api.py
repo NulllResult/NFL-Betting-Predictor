@@ -3038,27 +3038,35 @@ def ml_predict():
     # Log for self-learning
     try:
         history = load_prediction_history()
-        history.append({
-            "timestamp": time.time(),
-            "date": time.strftime("%Y-%m-%d %H:%M"),
-            "team1": team1, "team2": team2,
-            "predicted_winner": winner,
-            "predicted_score": f"{s1}-{s2}",
-            "predicted_spread": our_spread_str,
-            "predicted_total": total,
-            "confidence": confidence,
-            "raw_confidence": raw_conf_pct,
-            "market_home_prob": market_home_prob,
-            "market_spread": market_spread,
-            "market_total": market_total,
-            "edge": edge,
-            "actual_winner": None, "actual_score": None, "correct": None,
-            "model_source": "ml_v3",
-            "opening_spread": market_spread,
-            "clv": None,
-            "game_slot": slot,
-        })
-        save_prediction_history(history)
+        # DEDUPE: Skip logging if this exact matchup was logged in the last 30 minutes
+        _skip_log = False
+        for _prev in reversed(history[-30:]):
+            if _prev.get('team1') == team1 and _prev.get('team2') == team2:
+                if time.time() - _prev.get('timestamp', 0) < 1800:
+                    _skip_log = True
+                    break
+        if not _skip_log:
+            history.append({
+                "timestamp": time.time(),
+                "date": time.strftime("%Y-%m-%d %H:%M"),
+                "team1": team1, "team2": team2,
+                "predicted_winner": winner,
+                "predicted_score": f"{s1}-{s2}",
+                "predicted_spread": our_spread_str,
+                "predicted_total": total,
+                "confidence": confidence,
+                "raw_confidence": raw_conf_pct,
+                "market_home_prob": market_home_prob,
+                "market_spread": market_spread,
+                "market_total": market_total,
+                "edge": edge,
+                "actual_winner": None, "actual_score": None, "correct": None,
+                "model_source": "ml_v3",
+                "opening_spread": market_spread,
+                "clv": None,
+                "game_slot": slot,
+            })
+            save_prediction_history(history)
     except Exception:
         pass
 
