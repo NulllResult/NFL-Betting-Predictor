@@ -279,7 +279,7 @@ class MainActivity : AppCompatActivity() {
         "Baltimore Ravens" to "bal", "Cincinnati Bengals" to "cin", "Cleveland Browns" to "cle", "Pittsburgh Steelers" to "pit",
         "Houston Texans" to "hou", "Indianapolis Colts" to "ind", "Jacksonville Jaguars" to "jax", "Tennessee Titans" to "ten",
         "Denver Broncos" to "den", "Kansas City Chiefs" to "kc", "Las Vegas Raiders" to "lv", "Los Angeles Chargers" to "lac",
-        "Dallas Cowboys" to "dal", "New York Giants" to "nyg", "Philadelphia Eagles" to "phi", "Washington Commanders" to "wsh",
+        "Dallas Cowboys" to "dal", "New York Giants" to "nyg", "Philadelphia Eagles" to "phi", "Washington Commanders" to "was",
         "Chicago Bears" to "chi", "Detroit Lions" to "det", "Green Bay Packers" to "gb", "Minnesota Vikings" to "min",
         "Atlanta Falcons" to "atl", "Carolina Panthers" to "car", "New Orleans Saints" to "no", "Tampa Bay Buccaneers" to "tb",
         "Arizona Cardinals" to "ari", "Los Angeles Rams" to "lar", "San Francisco 49ers" to "sf", "Seattle Seahawks" to "sea"
@@ -1354,6 +1354,11 @@ class MainActivity : AppCompatActivity() {
                     val sb = StringBuilder()
                     sb.append("${team1} vs ${team2}\n")
                     sb.append("==============================\n\n")
+                    if (p?.is_no_pick == true) {
+                        sb.append("⚠⚠⚠ NO PICK RECOMMENDED ⚠⚠⚠\n")
+                        p.no_pick_reasons?.forEach { sb.append("  • $it\n") }
+                        sb.append("\n")
+                    }
                     sb.append("${p?.predicted_winner ?: "?"} WINS\n\n")
                     sb.append("Predicted Score: ${p?.predicted_score ?: "N/A"}\n")
                     // Calculate spread from predicted score to ensure consistency

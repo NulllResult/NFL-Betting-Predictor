@@ -1,16 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.bestg.betting">
 
+    <!-- Core network access -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- mDNS discovery on Android 12+ also needs location -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Background notifications (WorkManager 15-min polling) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:targetApi="33" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Optional: only needed if you ever use setForeground() -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- mDNS discovery of the Flask server (Android 11+) -->
+    <queries>
+        <intent>
+            <action android:name="android.net.nsd.SERVICE_DISCOVERY" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
         android:label="NFL Betting Predictor"
         android:supportsRtl="true"
         android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
-        
+
         <activity
             android:name=".MainActivity"
             android:exported="true">

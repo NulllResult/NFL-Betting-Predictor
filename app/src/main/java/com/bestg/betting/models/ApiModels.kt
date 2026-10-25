@@ -71,7 +71,8 @@ data class MlPredictionResponse(
     val team1_win_probability: Double? = null,
     val team2_win_probability: Double? = null,
     val key_factors: List<String>? = null,
-    val key_factors_detail: List<String>? = null
+    val key_factors_detail: List<String>? = null,
+    val no_pick_reasons: List<String>? = null
 )
 
 data class SimilarMatchup(

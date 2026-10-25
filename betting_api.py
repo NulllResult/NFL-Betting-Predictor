@@ -2953,7 +2953,8 @@ def ml_predict():
     NO_PICK_MAX_RAW_CONF = 10.0
     NO_PICK_INVERTED_MIN = 20.0
     NO_PICK_INVERTED_MAX = 30.0
-    is_no_pick = (raw_confidence < NO_PICK_MAX_RAW_CONF) or \
+    is_no_pick = is_no_pick or \
+                 (raw_confidence < NO_PICK_MAX_RAW_CONF) or \
                  (NO_PICK_INVERTED_MIN <= raw_confidence < NO_PICK_INVERTED_MAX)
     confidence = calibrated_confidence(blended)
     raw_conf_pct = raw_confidence
@@ -2977,9 +2978,25 @@ def ml_predict():
     if market_total is not None:
         total = int(round(market_total))
     else:
-        baseline_total = 45
-        total = int(round(baseline_total - 0.5 * abs(blended_spread)))
-        total = max(34, min(56, total))
+        try:
+            def _ppg(team_name):
+                abbr = TEAM_MAP.get(team_name, '')
+                sched = get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{abbr}/schedule?season=2026&seasontype=2", f"ppg_{abbr}")
+                if not sched or 'events' not in sched: return 22.0
+                pf_total = 0; games = 0
+                for ev in sched['events']:
+                    comp = ev.get('competitions', [{}])[0]
+                    if not comp.get('status', {}).get('type', {}).get('completed'): continue
+                    for c in comp.get('competitors', []):
+                        if c.get('team', {}).get('abbreviation', '').upper() == abbr.upper():
+                            sv = c.get('score', 0)
+                            if isinstance(sv, dict): sv = sv.get('value', 0)
+                            pf_total += int(sv) if sv else 0; games += 1; break
+                return (pf_total / games) if games > 0 else 22.0
+            computed_total = _ppg(team1) + _ppg(team2) - 0.3 * abs(blended_spread)
+            total = max(38, min(56, int(round(computed_total))))
+        except Exception:
+            total = max(34, min(56, int(round(45 - 0.5 * abs(blended_spread)))))
 
     # Derive scores from spread + total
     s1 = int(round(total / 2 - blended_spread / 2))
