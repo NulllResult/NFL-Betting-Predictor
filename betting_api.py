@@ -2966,12 +2966,11 @@ def ml_predict():
     # Model spread from probability
     ml_spread = (ml_prob_pct - 50) / 50 * 14
 
-    # Blend with market if available
-    if market_spread is not None:
-        model_spread_from_home = -ml_spread
-        blended_spread = market_spread * 0.6 + model_spread_from_home * 0.4
-    else:
-        blended_spread = -ml_spread
+    # Calculate spread PURELY from the blended probability.
+    # Do NOT trust market_spread signs here because sportsbooks flip signs.
+    # If blended > 50, team2 (away) is favored, so spread is positive for team2.
+    # If blended < 50, team1 (home) is favored, so spread is negative for team1.
+    blended_spread = -((blended - 50) / 50) * 14
 
     # Round to nearest .0 or .5 (NFL convention)
     blended_spread = round(blended_spread * 2) / 2
@@ -3017,14 +3016,18 @@ def ml_predict():
         s1 += diff // 2
         s2 += diff - (diff // 2)
 
-    # Apply primetime/TNF slot adjustments
+    # Apply primetime/TNF slot adjustments (only affects total, not spread)
     slot = "SUNDAY_EARLY"
     spread_mult, total_delta = slot_adjustments(slot)
-    blended_spread = blended_spread * spread_mult
     total = int(round(total + total_delta))
 
-    # CRITICAL FIX: Ensure the score perfectly matches the predicted winner
-    # If winner is team1, s1 MUST be greater than s2, and vice versa.
+    # Re-derive scores from the final spread and total to ensure absolute consistency
+    s1 = int(round(total / 2 - blended_spread / 2))
+    s2 = int(round(total / 2 + blended_spread / 2))
+    s1 = max(10, s1)
+    s2 = max(10, s2)
+
+    # Final safety net to guarantee winner and score match
     if winner == team1 and s1 <= s2:
         s1 = s2 + 1
     elif winner == team2 and s2 <= s1:
