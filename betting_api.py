@@ -1754,15 +1754,31 @@ def upcoming_games():
         data = requests.get(url, timeout=10).json()
         current_week = data.get('week', {}).get('number', 1)
         games = []
+        
+        # If current week has <3 predictable games, also fetch next week
+        current_events = data.get('events', [])
+        predictable_current = [e for e in current_events if not e.get('status', {}).get('type', {}).get('completed', False)]
+        if len(predictable_current) < 3:
+            try:
+                next_url = f"{ESPN_SITE_V2}/scoreboard?week={current_week + 1}&seasontype=2"
+                next_data = requests.get(next_url, timeout=10).json()
+                next_events = next_data.get('events', [])
+                if next_events:
+                    # Merge: current events + next week's events
+                    data['events'] = current_events + next_events
+                    print(f"[UPCOMING] Merged Week {current_week} ({len(current_events)}) + Week {current_week + 1} ({len(next_events)})")
+            except Exception as e:
+                print(f"[UPCOMING] Next week fetch failed: {e}")
         for event in data.get('events', []):
             status = event.get('status', {}).get('type', {})
             state = status.get('description', 'Scheduled')
             detail = status.get('shortDetail', '')
             completed = status.get('completed', False)
             week_num = event.get('week', {}).get('number', 0)
-            if week_num != current_week:
+            # Allow current week OR next week (for end-of-week fallback)
+            if week_num not in [current_week, current_week + 1]:
                 continue
-            # Skip games that are already final — they can't be predicted
+            # Skip games that are already final
             if completed:
                 continue
             comp = event.get('competitions', [{}])[0]
