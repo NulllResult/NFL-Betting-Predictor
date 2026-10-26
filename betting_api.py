@@ -1762,6 +1762,9 @@ def upcoming_games():
             week_num = event.get('week', {}).get('number', 0)
             if week_num != current_week:
                 continue
+            # Skip games that are already final — they can't be predicted
+            if completed:
+                continue
             comp = event.get('competitions', [{}])[0]
             comps = comp.get('competitors', [])
             if len(comps) < 2:
