@@ -1005,6 +1005,19 @@ def get_win_loss():
 
 @app.route('/predict', methods=['GET'])
 def predict_winner():
+    """DEPRECATED: Use /ml_predict instead. This endpoint kept for backward compatibility."""
+    # Route internally to /ml_predict so both endpoints return identical data
+    from flask import request as _r
+    team1_param = _r.args.get('team1')
+    team2_param = _r.args.get('team2')
+    if team1_param and team2_param:
+        # Build a fake request context and call ml_predict
+        try:
+            with app.test_request_context(f'/ml_predict?team1={team1_param}&team2={team2_param}'):
+                return ml_predict()
+        except Exception:
+            pass  # Fall through to old implementation if ml_predict fails
+    # Original implementation below as fallback
     team1 = request.args.get('team1')
     team2 = request.args.get('team2')
     if not team1 or not team2:
@@ -1019,6 +1032,12 @@ def predict_winner():
         # Load ML models
         rf = joblib.load('ml_models/random_forest_v6.pkl')
         gb = joblib.load('ml_models/gradient_boosting_v6.pkl')
+        try:
+            rf_v7 = joblib.load('ml_models/random_forest_v7.pkl')
+            gb_v7 = joblib.load('ml_models/gradient_boosting_v7.pkl')
+        except Exception:
+            rf_v7 = None
+            gb_v7 = None
         strengths = joblib.load('ml_models/team_strengths.pkl')
     except:
         rf = gb = None
@@ -1252,7 +1271,12 @@ def predict_winner():
         as_ = strengths.get(t2_abbr, 0)
         diff = hs - as_
         feats = pd.DataFrame([[hs, as_, diff]], columns=['home_strength','away_strength','strength_diff'])
-        ml_prob = (rf.predict_proba(feats)[0][1] + gb.predict_proba(feats)[0][1]) / 2
+        prob_v6 = (rf.predict_proba(feats)[0][1] + gb.predict_proba(feats)[0][1]) / 2
+        if rf_v7 is not None and gb_v7 is not None:
+            prob_v7 = (rf_v7.predict_proba(feats)[0][1] + gb_v7.predict_proba(feats)[0][1]) / 2
+            ml_prob = (prob_v6 * 0.6) + (prob_v7 * 0.4)  # 60/40 blend
+        else:
+            ml_prob = prob_v6
         score1 += ml_prob * 5
         score2 += (1 - ml_prob) * 5
         factors.append(f"ML model: {ml_prob:.0%} for {team1}")
@@ -1409,7 +1433,7 @@ def predict_winner():
         "market_spread": market_spread if 'market_spread' in dir() else None,
         "market_total": market_total if 'market_total' in dir() else None,
         "key_factors": factors,
-        "key_factors_detail": factors_detail,
+        
         "raw_confidence": raw_conf_pct,
         "calibrated": True,
         "is_no_pick": is_no_pick,
@@ -1749,11 +1773,12 @@ def upcoming_games():
             game_date_raw = event.get('date', '')
             # Convert UTC to US Eastern
             try:
-                from datetime import datetime, timedelta
-                dt = datetime.strptime(game_date_raw.replace('Z', ''), '%Y-%m-%dT%H:%M')
-                dt_eastern = dt - timedelta(hours=4)  # EDT offset
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                dt_utc = datetime.strptime(game_date_raw.replace('Z', ''), '%Y-%m-%dT%H:%M').replace(tzinfo=ZoneInfo("UTC"))
+                dt_eastern = dt_utc.astimezone(ZoneInfo("America/New_York"))
                 game_date = dt_eastern.strftime('%Y-%m-%dT%H:%M:%S')
-            except:
+            except Exception:
                 game_date = game_date_raw
             home_abbr = home.get('team', {}).get('abbreviation', '')
             away_abbr = away.get('team', {}).get('abbreviation', '')
@@ -1917,6 +1942,9 @@ def check_results():
         key = f"{home.get('team', {}).get('displayName', '')}|{away.get('team', {}).get('displayName', '')}"
         hs = int(home.get('score', 0) or 0)
         as_ = int(away.get('score', 0) or 0)
+        # Skip games with no score data — they haven't actually finished
+        if hs == 0 and as_ == 0:
+            continue
         winner = home.get('team', {}).get('displayName') if hs > as_ else away.get('team', {}).get('displayName')
         final_games[key] = {"winner": winner, "score": f"{hs}-{as_}"}
     updated = 0
@@ -2201,21 +2229,53 @@ def check_results_internal():
         hs = int(home.get('score', 0) or 0)
         as_ = int(away.get('score', 0) or 0)
         winner = home.get('team', {}).get('displayName') if hs > as_ else away.get('team', {}).get('displayName')
+        # Robustly extract date from event (handle missing, ISO, or plain)
+        _event_date = ''
+        try:
+            _raw = event.get('date', '')
+            if _raw:
+                _event_date = _raw[:10]  # Take YYYY-MM-DD from ISO
+        except Exception:
+            pass
         final_games.append({
             "home": home.get('team', {}).get('displayName', ''),
             "away": away.get('team', {}).get('displayName', ''),
             "winner": winner,
             "score": f"{as_}-{hs}",
             "home_score": hs,
-            "away_score": as_
+            "away_score": as_,
+            "date": _event_date
         })
     updated = 0
     import time as _t
     for h in history:
         if h.get('correct') is not None: continue
         for fg in final_games:
-            if (h.get('team1') == fg['home'] and h.get('team2') == fg['away']) or \
-               (h.get('team1') == fg['away'] and h.get('team2') == fg['home']):
+            # Robust date matching:
+            # - If either date is missing/empty, fall back to team-only matching
+            # - Otherwise, require within 7 days (accounts for TZ skew and late games)
+            from datetime import datetime as _dt
+            h_date_str = (h.get('date') or '')[:10]
+            fg_date_str = (fg.get('date') or '')[:10]
+
+            date_match = True  # default to allow
+            if h_date_str and fg_date_str:
+                try:
+                    h_d = _dt.strptime(h_date_str, '%Y-%m-%d')
+                    fg_d = _dt.strptime(fg_date_str, '%Y-%m-%d')
+                    date_match = abs((h_d - fg_d).days) <= 7
+                except Exception:
+                    date_match = True  # if parse fails, allow
+
+            # ONLY resolve against COMPLETED games (fg has winner populated = completed)
+            if not fg.get('winner'):
+                continue
+            
+            # Skip unplayed games (winner is None)
+            if not fg.get('winner'):
+                continue
+            if date_match and ((h.get('team1') == fg['home'] and h.get('team2') == fg['away']) or \
+               (h.get('team1') == fg['away'] and h.get('team2') == fg['home'])):
                 h['actual_winner'] = fg['winner']
                 h['actual_score'] = fg['score']
                 h['correct'] = (h.get('predicted_winner') == fg['winner'])
@@ -2800,6 +2860,84 @@ def ml_predict():
     if not team1 or not team2:
         return jsonify({"error": "Invalid teams"}), 400
     
+    # ───── BULLETPROOF SCHEDULE & STATUS CHECK ─────
+    # Teams that play twice per season (divisional) have both past and future matchups.
+    # Rule: predict the game if ANY matchup is in the future. Reject only if ALL matchups are past.
+    from datetime import datetime as _sched_dt, timezone as _sched_tz
+    t1_abbr = TEAM_MAP.get(team1, '').upper()
+    t2_abbr = TEAM_MAP.get(team2, '').upper()
+    now_utc = _sched_dt.now(_sched_tz.utc)
+    
+    all_matchups = []  # list of (date_str, hours_ago, source)
+    try:
+        # Step 1: check current week's scoreboard for live games
+        sb_url = f"{ESPN_SITE_V2}/scoreboard?dates=2026"
+        sb_resp = requests.get(sb_url, timeout=5).json()
+        for ev in sb_resp.get('events', []):
+            comps = ev.get('competitions', [{}])[0].get('competitors', [])
+            if len(comps) < 2: continue
+            home_abbr = next((c.get('team', {}).get('abbreviation', '').upper() for c in comps if c.get('homeAway') == 'home'), '')
+            away_abbr = next((c.get('team', {}).get('abbreviation', '').upper() for c in comps if c.get('homeAway') == 'away'), '')
+            if (home_abbr == t1_abbr and away_abbr == t2_abbr) or (home_abbr == t2_abbr and away_abbr == t1_abbr):
+                status = ev.get('status', {}).get('type', {})
+                if status.get('state', '') == 'in':
+                    return jsonify({"error": f"{team1} vs {team2} is currently live. Wait until the game ends."}), 400
+                date_str = ev.get('date', '')
+                try:
+                    game_dt = _sched_dt.fromisoformat(date_str.replace('Z', '+00:00'))
+                    hours_ago = (now_utc - game_dt).total_seconds() / 3600
+                    all_matchups.append((date_str, hours_ago, 'scoreboard'))
+                except Exception:
+                    pass
+
+        # Step 2: check team schedule for all matchups (past AND future)
+        for abbr in [t1_abbr, t2_abbr]:
+            if not abbr: continue
+            for stype in [1, 2, 3]:
+                try:
+                    sched_url = f"{ESPN_SITE_V2}/teams/{abbr}/schedule?season=2026&seasontype={stype}"
+                    sched = requests.get(sched_url, timeout=5).json()
+                    for ev in sched.get('events', []):
+                        comps = ev.get('competitions', [{}])[0].get('competitors', [])
+                        if len(comps) < 2: continue
+                        abbrs = [c.get('team', {}).get('abbreviation', '').upper() for c in comps]
+                        if t1_abbr in abbrs and t2_abbr in abbrs:
+                            date_str = ev.get('date', '')
+                            try:
+                                game_dt = _sched_dt.fromisoformat(date_str.replace('Z', '+00:00'))
+                                hours_ago = (now_utc - game_dt).total_seconds() / 3600
+                                # Dedupe: don't add if we already have this exact date
+                                if not any(abs(h - hours_ago) < 0.1 for _, h, _ in all_matchups):
+                                    all_matchups.append((date_str, hours_ago, f'schedule_{stype}'))
+                            except Exception:
+                                pass
+                except Exception:
+                    continue
+
+        # Step 3: Decision logic
+        if not all_matchups:
+            return jsonify({
+                "error": f"{team1} vs {team2} is not on the 2026 NFL schedule. Cannot predict a matchup that does not exist."
+            }), 400
+
+        # Look for any future matchup (hours_ago < 0)
+        future_matchups = [m for m in all_matchups if m[1] < 0]
+        if future_matchups:
+            # There's a future rematch — allow prediction (uses the earliest future game)
+            pass  # fall through to allow prediction
+        else:
+            # All matchups are in the past
+            return jsonify({"error": f"{team1} vs {team2} has already been played and has no future rematch. Cannot predict."}), 400
+
+    except Exception as e:
+        print(f"[SCHEDULE CHECK ERROR] {e}")
+        pass  # Fail-open: if ESPN is down, allow prediction
+
+        pass  # Fail-open: if ESPN is down, allow prediction
+
+        pass  # If ESPN is entirely down, allow prediction so the app doesn't break
+
+
     prob_home = predict_ml_probability(team1, team2)
     if prob_home is None:
         return jsonify({"error": "Insufficient data for ML prediction"}), 400
@@ -2853,10 +2991,44 @@ def ml_predict():
         model_weight = 1.0 - market_weight
         blended = round(ml_prob_pct * model_weight + market_home_prob * market_weight, 1)
         edge = round(ml_prob_pct - market_home_prob, 1)
-        # Sanity clamp: Model shouldn't differ from market by more than 35%
-        edge = max(-35.0, min(35.0, edge))
+        edge = max(-25.0, min(25.0, edge))
     else:
-        blended = round(ml_prob_pct, 1)
+        # FALLBACK: If no market data, derive probability from team records
+        try:
+            abbr1 = TEAM_MAP.get(team1, '')
+            abbr2 = TEAM_MAP.get(team2, '')
+            # Fetch win/loss from ESPN (using existing get_cached_or_fetch)
+            def _get_record(abbr):
+                url = f"{ESPN_SITE_V2}/teams/{abbr}"
+                data = get_cached_or_fetch(url, f"record_{abbr}")
+                if data and 'team' in data:
+                    for item in data['team'].get('record', {}).get('items', []):
+                        if item.get('type') == 'total':
+                            rec = item.get('summary', '0-0')
+                            w, l = 0, 0
+                            if '-' in rec:
+                                try: w, l = map(int, rec.split('-'))
+                                except: pass
+                            return w, l
+                return 0, 0
+            w1, l1 = _get_record(abbr1)
+            w2, l2 = _get_record(abbr2)
+            total_games1 = max(w1 + l1, 1)
+            total_games2 = max(w2 + l2, 1)
+            # Win % as probability
+            prob1 = (w1 / total_games1) * 100 if total_games1 > 0 else 50
+            prob2 = (w2 / total_games2) * 100 if total_games2 > 0 else 50
+            # Home field advantage: +3 points (~5% probability)
+            prob1 += 5 if prob1 > 0 else 0
+            prob2 -= 5 if prob2 > 0 else 0
+            # Normalize
+            total_p = prob1 + prob2
+            if total_p > 0:
+                blended = round((prob1 / total_p) * 100, 1)
+            else:
+                blended = 50.0
+        except Exception:
+            blended = round(ml_prob_pct, 1)
 
     # ───── APPLY ADVANCED SIGNALS ─────
     advanced_adjustments = []
@@ -2945,7 +3117,7 @@ def ml_predict():
         factors.append("Advanced signals: none triggered")
         factors_detail.append("No contrarian/schedule/coaching adjustments applied (market data missing or no triggers).")
 
-    # Winner ALWAYS based on blended probability
+    # Winner from probability (will be OVERRIDDEN by spread below)
     winner = team1 if blended > 50 else team2
 
     # Raw confidence = distance from 50/50
@@ -2954,7 +3126,7 @@ def ml_predict():
     # CALIBRATED confidence — real-world accuracy in this bucket
     NO_PICK_MAX_RAW_CONF = 10.0
     NO_PICK_INVERTED_MIN = 20.0
-    NO_PICK_INVERTED_MAX = 30.0
+    NO_PICK_INVERTED_MAX = 35.0  # Widened: 30-35% bucket also had poor accuracy
     is_no_pick = is_no_pick or \
                  (raw_confidence < NO_PICK_MAX_RAW_CONF) or \
                  (NO_PICK_INVERTED_MIN <= raw_confidence < NO_PICK_INVERTED_MAX)
@@ -2966,13 +3138,50 @@ def ml_predict():
     # Model spread from probability
     ml_spread = (ml_prob_pct - 50) / 50 * 14
 
-    # Calculate spread PURELY from the blended probability.
-    # Do NOT trust market_spread signs here because sportsbooks flip signs.
-    # If blended > 50, team2 (away) is favored, so spread is positive for team2.
-    # If blended < 50, team1 (home) is favored, so spread is negative for team1.
-    blended_spread = -((blended - 50) / 50) * 14
+    # Calculate spread from BOTH probability AND real team PPG.
+    # Inline PPG fetch (proven working via debug script).
+    def _inline_ppg(team_name):
+        try:
+            abbr = TEAM_MAP.get(team_name, '')
+            url = f"{ESPN_SITE_V2}/teams/{abbr}/schedule?season=2026&seasontype=2"
+            data = get_cached_or_fetch(url, f"ppg_v2_{abbr}")
+            if not data: return 22.0
+            events = data.get('events', [])
+            completed = 0
+            pf = 0
+            for ev in events:
+                comp = ev.get('competitions', [{}])[0]
+                if not comp.get('status', {}).get('type', {}).get('completed'):
+                    continue
+                for c in comp.get('competitors', []):
+                    if c.get('team', {}).get('abbreviation', '').upper() == abbr.upper():
+                        sv = c.get('score', 0)
+                        if isinstance(sv, dict): sv = sv.get('value', 0)
+                        pf += int(sv) if sv else 0
+                        completed += 1
+                        break
+            return (pf / completed) if completed > 0 else 22.0
+        except Exception:
+            return 22.0
 
-    # Round to nearest .0 or .5 (NFL convention)
+    try:
+        ppg_home = _inline_ppg(team1)
+        ppg_away = _inline_ppg(team2)
+        scoring_spread = ppg_away - ppg_home  # FLIPPED: positive = away favored (matches prob_spread convention)
+    except Exception:
+        scoring_spread = 0
+
+    prob_spread = -((blended - 50) / 50) * 14
+
+    # Blend probability with PPG (60% PPG since ML model is stuck near 50%)
+    blended_spread = (prob_spread * 0.4) + (scoring_spread * 0.6)
+
+    # If PPG data is essentially flat (both 22.0), use probability only
+    if abs(scoring_spread) < 0.1:
+        blended_spread = prob_spread
+
+    # Cap at +/- 14
+    blended_spread = max(-14.0, min(14.0, blended_spread))
     blended_spread = round(blended_spread * 2) / 2
 
     # Total: use market if available, otherwise derive from model strength
@@ -2999,22 +3208,50 @@ def ml_predict():
         except Exception:
             total = max(34, min(56, int(round(45 - 0.5 * abs(blended_spread)))))
 
-    # Derive scores from spread + total
-    s1 = int(round(total / 2 - blended_spread / 2))
-    s2 = int(round(total / 2 + blended_spread / 2))
-    s1 = max(10, s1)
-    s2 = max(10, s2)
-
-    # Ensure score matches winner
+    # Derive scores from spread + total — with SPREAD MAGNITUDE LOCKED
+    spread_mag = int(round(abs(blended_spread)))
+    half_total = int(round(total / 2))
+    
+    if blended_spread < 0:
+        # Home favored → team1 wins by spread_mag
+        s2 = half_total - spread_mag // 2
+        s1 = s2 + spread_mag
+    elif blended_spread > 0:
+        # Away favored → team2 wins by spread_mag
+        s1 = half_total - spread_mag // 2
+        s2 = s1 + spread_mag
+    else:
+        # Pick'em → tie, but NFL doesn't allow ties
+        s1 = half_total
+        s2 = half_total
+        if winner == team1:
+            s1 += 1
+        else:
+            s2 += 1
+    
+    # Ensure minimum realistic scores
+    if s1 < 10:
+        s1 = 10
+        if blended_spread < 0:
+            s2 = s1 - spread_mag  # keep margin
+    if s2 < 10:
+        s2 = 10
+        if blended_spread > 0:
+            s1 = s2 - spread_mag
+    
+    # Verify final total is close to predicted
+    final_total = s1 + s2
+    if abs(final_total - total) > 2:
+        # Adjust both by same amount to preserve margin
+        delta = total - final_total
+        s1 += delta // 2
+        s2 += delta - (delta // 2)
+    
+    # Final safety: winner must have higher score
     if winner == team1 and s1 <= s2:
-        s1 = s2 + 3
+        s1 = s2 + abs(spread_mag if spread_mag > 0 else 1)
     elif winner == team2 and s2 <= s1:
-        s2 = s1 + 3
-    actual_total = s1 + s2
-    if actual_total != total:
-        diff = total - actual_total
-        s1 += diff // 2
-        s2 += diff - (diff // 2)
+        s2 = s1 + abs(spread_mag if spread_mag > 0 else 1)
 
     # Apply primetime/TNF slot adjustments (only affects total, not spread)
     slot = "SUNDAY_EARLY"
@@ -3033,15 +3270,29 @@ def ml_predict():
     elif winner == team2 and s2 <= s1:
         s2 = s1 + 1
 
+    # Recompute scores to match the confirmed winner
+    s1 = int(round(total / 2 - blended_spread / 2))
+    s2 = int(round(total / 2 + blended_spread / 2))
+    s1 = max(10, s1)
+    s2 = max(10, s2)
+    if winner == team1 and s1 <= s2:
+        s1 = s2 + 1
+    elif winner == team2 and s2 <= s1:
+        s2 = s1 + 1
+
     # Spread display: .0 or .5
     bs = abs(blended_spread)
     bs_str = f"{bs:.1f}"
     if blended_spread < 0:
         our_spread_str = f"{team1} -{bs_str}"
+        winner = team1  # Home favored → home wins
     elif blended_spread > 0:
         our_spread_str = f"{team2} -{bs_str}"
+        winner = team2  # Away favored → away wins
     else:
         our_spread_str = "Pick'em"
+        # For pick'em, use probability tiebreaker
+        winner = team1 if blended > 50 else team2
 
     # Confidence string (calibrated value)
     factors.append(f"Confidence: {confidence}% ({conf_level})")
@@ -3051,12 +3302,21 @@ def ml_predict():
     try:
         history = load_prediction_history()
         # DEDUPE: Skip logging if this exact matchup was logged in the last 30 minutes
+        # Also skip if the reversed order (team2 vs team1) was logged recently
         _skip_log = False
-        for _prev in reversed(history[-30:]):
-            if _prev.get('team1') == team1 and _prev.get('team2') == team2:
-                if time.time() - _prev.get('timestamp', 0) < 1800:
-                    _skip_log = True
-                    break
+        _now = time.time()
+        for _prev in reversed(history[-100:]):
+            _prev_t1 = _prev.get('team1', '')
+            _prev_t2 = _prev.get('team2', '')
+            _prev_ts = _prev.get('timestamp', 0)
+            
+            # Match forward OR reverse
+            _match = (_prev_t1 == team1 and _prev_t2 == team2) or \
+                     (_prev_t1 == team2 and _prev_t2 == team1)
+            
+            if _match and (_now - _prev_ts) < 1800:
+                _skip_log = True
+                break
         if not _skip_log:
             history.append({
                 "timestamp": time.time(),
@@ -3077,6 +3337,15 @@ def ml_predict():
                 "opening_spread": market_spread,
                 "clv": None,
                 "game_slot": slot,
+                "key_factors": factors if 'factors' in dir() else [],
+                "key_factors": factors,
+                "signals_present": [s for s in [
+                    'qb_epa' if any('QB EPA' in factor for factor in factors) else None,
+                    'contrarian' if any('Contrarian' in factor for factor in factors) else None,
+                    'schedule' if any('Schedule' in factor for factor in factors) else None,
+                    'coaching' if any('Coaching' in factor for factor in factors) else None,
+                    'ml_model' if any('ML model' in factor for factor in factors) else None,
+                ] if s is not None],
             })
             save_prediction_history(history)
     except Exception:
@@ -3103,7 +3372,7 @@ def ml_predict():
         "market_spread": (round(market_spread * 2) / 2 if market_spread is not None else None),
         "market_total": (int(round(market_total)) if market_total is not None else None),
         "key_factors": factors,
-        "key_factors_detail": factors_detail,
+        
         "game_slot": slot
     })
 
@@ -3142,7 +3411,7 @@ if __name__ == "__main__":
     _zc = _start_mdns_broadcast(5000)
     _start_auto_resolve()
     try:
-        app.run(host="0.0.0.0", port=5000, debug=True)
+        app.run(host="0.0.0.0", port=5000, debug=False)
     finally:
         if _zc:
             try: _zc.close()

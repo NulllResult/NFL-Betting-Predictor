@@ -1,42 +1,63 @@
 # Build artifacts
-.gradle/
-build/
-*/build/
-.gradle/**/*
 app/build/
-app/build.gradle.kts.backup*
-
-# IDE
-.idea/
-*.iml
-.vscode/
+build/
+.gradle/
+*.apk
+*.apk.backup*
+!NFL-Betting-Predictor.apk
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
+venv/
+.env
+*.log
+nohup.out
 
-# Local config (contains machine-specific paths)
-local.properties
-
-# Temp files
-_fix.py
+# Backups and one-off scripts
+*.backup
+*.backup*
+*.bak
+fix_*.py
+fix-*.sh
+fix-*.ps1
 _endpoint.py
-fix_predict.py
-betting_api_backup_*.py
-betting_api_before_*.py
-0
-50
-away_score
+_fix.py
+app_full_dump.txt
+
+# Archive (keep locally, don't commit)
+archive/
+
+# Second copy of project
+new_app/
+
+# IDE
+.idea/
+.vscode/
+*.iml
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Stale backups / duplicates
-app/src/main/AndroidManifest.xml.bak
-new_app/
-*.bak
-*.backup
-*.backup2
+# Stray terminal artifacts
+0
+50
+away_score
+h
+
+# Local Android SDK path (machine-specific)
+local.properties
+
+# Prediction history backups
+prediction_history.json.backup*
+
+# Old betting_api versions
+betting_api_backup_*.py
+betting_api_before_*.py
+
+# Old feature_updater versions
+feature_updater.py.bak
+feature_updater.py.v6.bak
+build_features_v3.py.bak
