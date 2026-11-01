@@ -3049,6 +3049,33 @@ def ml_predict():
         except Exception:
             blended = round(ml_prob_pct, 1)
 
+    # ───── RECORD BOOST (RESPECT UNDEFEATED TEAMS) ─────
+    try:
+        def get_record_wins(team_name):
+            abbr = TEAM_MAP.get(team_name, '')
+            data = get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{abbr}", f"team_{abbr}")
+            if data and 'team' in data:
+                for item in data['team'].get('record', {}).get('items', []):
+                    if item.get('type') == 'total':
+                        rec_str = item.get('summary', '0-0')
+                        if '-' in rec_str:
+                            w, l = map(int, rec_str.split('-'))
+                            return w, l
+            return 0, 0
+            
+        w1, l1 = get_record_wins(team1)
+        w2, l2 = get_record_wins(team2)
+        wp1 = w1 / max(1, w1 + l1)
+        wp2 = w2 / max(1, w2 + l2)
+        
+        record_diff = wp1 - wp2
+        if abs(record_diff) > 0.15:
+            boost = record_diff * 20
+            blended = round(blended + boost, 1)
+            advanced_adjustments.append(f"Record Boost: {boost:+.1f}% (W-L: {w1}-{l1} vs {w2}-{l2})")
+    except Exception:
+        pass
+
     # ───── APPLY ADVANCED SIGNALS ─────
     advanced_adjustments = []
 
