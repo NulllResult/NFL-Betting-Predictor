@@ -55,7 +55,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var teamSpinner: Spinner
     private lateinit var playerSpinner: Spinner
     private lateinit var resultText: TextView
-    private lateinit var resultContainer: LinearLayout
     private lateinit var scoreBanner: TextView
     private lateinit var scoreBannerFlipper: android.widget.ViewFlipper
     private lateinit var loadingIndicator: ProgressBar
@@ -115,7 +114,6 @@ class MainActivity : AppCompatActivity() {
         teamSpinner = findViewById(R.id.teamSpinner)
         playerSpinner = findViewById(R.id.playerSpinner)
         resultText = findViewById(R.id.resultText)
-        resultContainer = findViewById(R.id.resultContainer)
         scoreBanner = findViewById(R.id.scoreBanner)
         scoreBannerFlipper = findViewById(R.id.scoreBannerFlipper)
         loadingIndicator = findViewById(R.id.loadingIndicator)
@@ -771,182 +769,20 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-
-    // ═══════════════════════════════════════════════════════════════
-    // NEW UI HELPERS: Premium Card Layouts
-    // ═══════════════════════════════════════════════════════════════
-
-    private fun clearCards() {
-        resultContainer.removeAllViews()
-        resultText.visibility = View.GONE
-    }
-
-    private fun addHeaderCard(title: String) {
-        val tv = TextView(this)
-        tv.text = title
-        tv.setTextColor(ContextCompat.getColor(this, R.color.steelers_gold))
-        tv.textSize = 18f
-        tv.setTypeface(null, android.graphics.Typeface.BOLD)
-        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lp.setMargins(0, 0, 0, 12)
-        tv.layoutParams = lp
-        resultContainer.addView(tv)
-    }
-
-    private fun addWinnerCard(winner: String, score: String, spread: String, total: String) {
-        val card = com.google.android.material.card.MaterialCardView(this)
-        card.setCardBackgroundColor(ContextCompat.getColor(this, R.color.card_default_bg))
-        card.radius = 24f
-        card.cardElevation = 6f
-        card.strokeWidth = 1
-        card.strokeColor = ContextCompat.getColor(this, R.color.steelers_gold)
-        
-        val inner = LinearLayout(this)
-        inner.orientation = LinearLayout.VERTICAL
-        inner.setPadding(32, 32, 32, 32)
-        
-        // Winner banner
-        val banner = TextView(this)
-        banner.text = "$winner WINS"
-        banner.setTextColor(android.graphics.Color.BLACK)
-        banner.setBackgroundColor(ContextCompat.getColor(this, R.color.steelers_gold))
-        banner.textSize = 20f
-        banner.setTypeface(null, android.graphics.Typeface.BOLD)
-        banner.gravity = android.view.Gravity.CENTER
-        banner.setPadding(24, 16, 24, 16)
-        inner.addView(banner)
-        
-        // Score / Spread / Total grid
-        val statsRow = LinearLayout(this)
-        statsRow.orientation = LinearLayout.HORIZONTAL
-        statsRow.setPadding(0, 24, 0, 0)
-        
-        val s1 = createStatBlock("SCORE", score)
-        val s2 = createStatBlock("SPREAD", spread)
-        val s3 = createStatBlock("TOTAL", total)
-        
-        statsRow.addView(s1, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        statsRow.addView(s2, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        statsRow.addView(s3, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        
-        inner.addView(statsRow)
-        card.addView(inner)
-        
-        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lp.setMargins(0, 0, 0, 16)
-        card.layoutParams = lp
-        resultContainer.addView(card)
-    }
-
-    private fun createStatBlock(label: String, value: String): LinearLayout {
-        val layout = LinearLayout(this)
-        layout.orientation = LinearLayout.VERTICAL
-        layout.gravity = android.view.Gravity.CENTER
-        
-        val labelTv = TextView(this)
-        labelTv.text = label
-        labelTv.textSize = 10f
-        labelTv.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-        labelTv.gravity = android.view.Gravity.CENTER
-        
-        val valueTv = TextView(this)
-        valueTv.text = value
-        valueTv.textSize = 18f
-        valueTv.setTypeface(null, android.graphics.Typeface.BOLD)
-        valueTv.setTextColor(android.graphics.Color.WHITE)
-        valueTv.gravity = android.view.Gravity.CENTER
-        
-        layout.addView(labelTv)
-        layout.addView(valueTv)
-        return layout
-    }
-
-    private fun addProbabilityCard(home: String, homePct: Double, away: String, awayPct: Double) {
-        val card = com.google.android.material.card.MaterialCardView(this)
-        card.setCardBackgroundColor(ContextCompat.getColor(this, R.color.card_default_bg))
-        card.radius = 16f
-        card.cardElevation = 4f
-        
-        val inner = LinearLayout(this)
-        inner.orientation = LinearLayout.VERTICAL
-        inner.setPadding(32, 24, 32, 24)
-        
-        val header = TextView(this)
-        header.text = "BLENDED WIN PROBABILITY"
-        header.textSize = 10f
-        header.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-        header.setTypeface(null, android.graphics.Typeface.BOLD)
-        inner.addView(header)
-        
-        // Home bar
-        inner.addView(makeProbRow(home, homePct, R.color.steelers_gold))
-        // Away bar
-        inner.addView(makeProbRow(away, awayPct, R.color.text_secondary))
-        
-        card.addView(inner)
-        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lp.setMargins(0, 0, 0, 16)
-        card.layoutParams = lp
-        resultContainer.addView(card)
-    }
-
-    private fun makeProbRow(team: String, pct: Double, colorRes: Int): LinearLayout {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.VERTICAL
-        row.setPadding(0, 12, 0, 0)
-        
-        val textRow = LinearLayout(this)
-        textRow.orientation = LinearLayout.HORIZONTAL
-        
-        val nameTv = TextView(this)
-        nameTv.text = team
-        nameTv.textSize = 14f
-        nameTv.setTextColor(android.graphics.Color.WHITE)
-        nameTv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        
-        val pctTv = TextView(this)
-        pctTv.text = String.format("%.1f%%", pct)
-        pctTv.textSize = 14f
-        pctTv.setTypeface(null, android.graphics.Typeface.BOLD)
-        pctTv.setTextColor(ContextCompat.getColor(this, colorRes))
-        
-        textRow.addView(nameTv)
-        textRow.addView(pctTv)
-        row.addView(textRow)
-        
-        // Real Progress Bar
-        val progressBar = com.google.android.material.progressindicator.LinearProgressIndicator(this)
-        progressBar.max = 100
-        progressBar.progress = pct.toInt()
-        progressBar.setIndicatorColor(ContextCompat.getColor(this, colorRes))
-        progressBar.trackColor = ContextCompat.getColor(this, R.color.card_live_bg)
-        progressBar.trackCornerRadius = 12
-        progressBar.setPadding(0, 8, 0, 0)
-        row.addView(progressBar)
-        
-        return row
-    }
-
     private fun showLivePredictions() {
         showLoading(true)
-        clearCards()
-        addHeaderCard("LIVE PREDICTIONS")
-        
+        resultText.text = "Loading live predictions..."
         apiService.getLivePredictions().enqueue(object : Callback<LivePredictionResponse> {
             override fun onResponse(call: Call<LivePredictionResponse>, response: Response<LivePredictionResponse>) {
                 showLoading(false)
-                clearCards()
-                addHeaderCard("LIVE PREDICTIONS")
-                
                 val games = response.body()?.live ?: emptyList()
                 if (games.isEmpty()) {
-                    val tv = TextView(this@MainActivity)
-                    tv.text = "No live games right now"
-                    tv.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-                    tv.textSize = 14f
-                    resultContainer.addView(tv)
+                    resultText.text = "No live games right now"
                     return
                 }
+                val sb = StringBuilder()
+                sb.append("LIVE GAME PREDICTIONS\n")
+                sb.append("==============================\n\n")
 
                 for (g in games) {
                     val scoreDiff = g.home_score - g.away_score
@@ -955,34 +791,45 @@ class MainActivity : AppCompatActivity() {
                         scoreDiff < 0 -> g.away
                         else -> null
                     }
+
+                    // ══ PRE-GAME TEMPLATE LAYOUT ══
+                    sb.append("${g.away} vs ${g.home}\n")
+                    sb.append("==============================\n\n")
                     
-                    val winnerText = leader ?: "TIED"
-                    val scoreStr = "${g.away_score}-${g.home_score}"
-                    val spreadStr = g.model_spread ?: "N/A"
-                    val totalStr = g.model_total?.toString() ?: "N/A"
+                    if (leader != null) {
+                        sb.append("${leader} WINS\n\n")
+                    } else {
+                        sb.append("TIED GAME\n\n")
+                    }
+
+                    sb.append("Current Score: ${g.away_score}-${g.home_score}\n")
+                    sb.append("Clock: ${g.clock} (Q${g.period ?: 1})\n")
                     
-                    addWinnerCard(winnerText, scoreStr, spreadStr, totalStr)
+                    // ALWAYS show the spread, even if null
+                    val spreadText = g.model_spread ?: "N/A"
+                    val totalText = g.model_total?.toString() ?: "N/A"
+                    sb.append("Model Spread: $spreadText\n")
+                    sb.append("Total: $totalText\n")
+                    sb.append("\n")
+
+                    sb.append("Blended Win Probability:\n")
+                    val hp = g.home_win_probability
+                    val ap = g.away_win_probability
+                    sb.append("  ${g.home}: ${String.format("%.1f", hp)}%\n")
+                    sb.append("  ${g.away}: ${String.format("%.1f", ap)}%\n")
                     
-                    // Matchup header text
-                    val matchupTv = TextView(this@MainActivity)
-                    matchupTv.text = "${g.away} vs ${g.home}\nClock: ${g.clock} (Q${g.period ?: 1})"
-                    matchupTv.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_white))
-                    matchupTv.textSize = 14f
-                    matchupTv.gravity = android.view.Gravity.CENTER
-                    matchupTv.setPadding(0, 0, 0, 16)
-                    resultContainer.addView(matchupTv)
-                    
-                    addProbabilityCard(g.home, g.home_win_probability, g.away, g.away_win_probability)
+                    val homeBlocks = (hp / 5).toInt().coerceIn(0, 20)
+                    val probBar = "\u2588".repeat(homeBlocks) + "\u2591".repeat(20 - homeBlocks)
+                    sb.append("  Home: $probBar\n")
+                    sb.append("  Away: " + "\u2588".repeat((ap / 5).toInt().coerceIn(0, 20)) + "\u2591".repeat(20 - (ap / 5).toInt().coerceIn(0, 20)) + "\n\n")
                 }
+                resultText.text = sb.toString()
             }
             override fun onFailure(call: Call<LivePredictionResponse>, t: Throwable) {
                 showLoading(false)
-                clearCards()
-                val tv = TextView(this@MainActivity)
-                tv.text = "Failed to load live predictions: ${t.message}"
-                tv.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_error))
-                tv.textSize = 14f
-                resultContainer.addView(tv)
+                AppLog.e("live_prediction failed", t)
+                resultText.text = "Failed to load live predictions"
+                Toast.makeText(this@MainActivity, "Live predictions failed", Toast.LENGTH_SHORT).show()
             }
         })
     }
@@ -1499,89 +1346,112 @@ class MainActivity : AppCompatActivity() {
     private fun fetchPrediction(team1: String, team2: String) {
         if (team1.isEmpty() || team2.isEmpty()) return
         showLoading(true)
-        clearCards()
-        addHeaderCard("PREDICTION: $team1 vs $team2")
-        
         apiService.getMlPrediction(team1, team2).enqueue(object : Callback<MlPredictionResponse> {
             override fun onResponse(call: Call<MlPredictionResponse>, response: Response<MlPredictionResponse>) {
                 showLoading(false)
-                clearCards()
-                addHeaderCard("PREDICTION: $team1 vs $team2")
-                
                 if (response.isSuccessful) {
                     val p = response.body()
-                    
+                    val sb = StringBuilder()
+                    sb.append("${team1} vs ${team2}\n")
+                    sb.append("==============================\n\n")
                     if (p?.is_no_pick == true) {
-                        val noPick = TextView(this@MainActivity)
-                        noPick.text = "⚠️ NO PICK RECOMMENDED"
-                        noPick.setTextColor(android.graphics.Color.WHITE)
-                        noPick.setBackgroundColor(android.graphics.Color.parseColor("#B91C1C"))
-                        noPick.textSize = 16f
-                        noPick.setTypeface(null, android.graphics.Typeface.BOLD)
-                        noPick.gravity = android.view.Gravity.CENTER
-                        noPick.setPadding(24, 16, 24, 16)
-                        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                        lp.setMargins(0, 0, 0, 16)
-                        noPick.layoutParams = lp
-                        resultContainer.addView(noPick)
+                        sb.append("⚠⚠⚠ NO PICK RECOMMENDED ⚠⚠⚠\n")
+                        p.no_pick_reasons?.forEach { sb.append("  • $it\n") }
+                        sb.append("\n")
                     }
-                    
-                    val winner = p?.predicted_winner ?: "?"
-                    val score = p?.predicted_score ?: "N/A"
-                    val spread = p?.predicted_spread ?: "N/A"
-                    val total = p?.predicted_total?.toString() ?: "N/A"
-                    
-                    addWinnerCard(winner, score, spread, total)
-                    
-                    val hp = p?.blended_home_probability ?: 50.0
-                    val ap = 100 - hp
-                    addProbabilityCard(team1, hp, team2, ap)
-                    
-                    // Key Factors
-                    if (!p?.key_factors.isNullOrEmpty()) {
-                        val factorsCard = com.google.android.material.card.MaterialCardView(this@MainActivity)
-                        factorsCard.setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.card_default_bg))
-                        factorsCard.radius = 16f
-                        factorsCard.cardElevation = 4f
-                        
-                        val inner = LinearLayout(this@MainActivity)
-                        inner.orientation = LinearLayout.VERTICAL
-                        inner.setPadding(32, 24, 32, 24)
-                        
-                        val header = TextView(this@MainActivity)
-                        header.text = "KEY FACTORS"
-                        header.textSize = 10f
-                        header.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-                        header.setTypeface(null, android.graphics.Typeface.BOLD)
-                        inner.addView(header)
-                        
-                        for (factor in (p?.key_factors ?: emptyList())) {
-                            val fTv = TextView(this@MainActivity)
-                            fTv.text = "• $factor"
-                            fTv.textSize = 12f
-                            fTv.setTextColor(android.graphics.Color.WHITE)
-                            fTv.setPadding(0, 8, 0, 0)
-                            inner.addView(fTv)
+                    sb.append("${p?.predicted_winner ?: "?"} WINS\n\n")
+                    sb.append("Predicted Score: ${p?.predicted_score ?: "N/A"}\n")
+                    // Calculate spread from predicted score to ensure consistency
+                    val pScore = p?.predicted_score
+                    val spreadText = if (pScore != null && pScore.contains("-")) {
+                        val parts = pScore.split("-")
+                        val s1 = parts[0].trim().toIntOrNull() ?: 0
+                        val s2 = parts[1].trim().toIntOrNull() ?: 0
+                        val diff = s1 - s2
+                        when {
+                            diff > 0 -> "${p?.team1 ?: "Team 1"} -$diff"
+                            diff < 0 -> "${p?.team2 ?: "Team 2"} -${-diff}"
+                            else -> "Pick 'Em"
                         }
-                        factorsCard.addView(inner)
-                        resultContainer.addView(factorsCard)
+                    } else {
+                        p?.predicted_spread ?: "N/A"
                     }
+                    sb.append("Model Spread: $spreadText\n")
+                    sb.append("Total: ${p?.predicted_total ?: "N/A"}\n\n")
+                    sb.append("Blended Win Probability:\n")
+                    val blendedHome = p?.blended_home_probability
+                    if (blendedHome != null) {
+                        sb.append("  ${team1}: ${blendedHome}%\n")
+                        sb.append("  ${team2}: ${100 - blendedHome}%\n")
+                    } else {
+                        sb.append("  N/A\n")
+                    }
+                    sb.append("\n")
+
+                    val mlHome = p?.ml_home_probability
+                    if (mlHome != null) {
+                        sb.append("ML Model: ${mlHome}% home\n")
+                    }
+
+                    val marketHome = p?.market_home_prob
+                    val edge = p?.edge
+                    if (marketHome != null) {
+                        sb.append("Market: ${marketHome}% home\n")
+                    }
+                    if (edge != null) {
+                        sb.append("Edge: ${edge}%\n")
+                    }
+                    if (marketHome != null || edge != null) {
+                        sb.append("\n")
+                    }
+                    if (p?.market_spread != null) {
+                        sb.append("SPORTSBOOK LINE\n")
+                        sb.append("  Spread: ${p.market_spread}\n")
+                        sb.append("  Total: ${p.market_total}\n\n")
+                    }
+                    resultText.text = sb.toString()
+
+                    // Fire secondary request for similar matchups and append to output
+                    apiService.getSimilarMatchups(team1, team2).enqueue(object : Callback<com.bestg.betting.models.SimilarMatchupsResponse> {
+                        override fun onResponse(call: Call<com.bestg.betting.models.SimilarMatchupsResponse>, simResp: Response<com.bestg.betting.models.SimilarMatchupsResponse>) {
+                            val sims = simResp.body()?.similar ?: emptyList()
+                            val summary = simResp.body()?.summary
+                            val current = resultText.text.toString()
+                            val sb2 = StringBuilder(current)
+                            if (sims.isEmpty()) {
+                                sb2.append("   No historical matchups found\n")
+                            } else {
+                                for (m in sims) {
+                                    val season = m.season ?: 0
+                                    val week = m.week ?: 0
+                                    val awayT = m.away_team ?: "?"
+                                    val homeT = m.home_team ?: "?"
+                                    val awScore = m.away_score ?: 0
+                                    val hmScore = m.home_score ?: 0
+                                    val winner = m.winner ?: "?"
+                                    val margin = m.margin ?: 0
+                                    sb2.append("   ${season} W${week}: $awayT $awScore @ $homeT $hmScore — $winner by $margin\n")
+                                }
+                                if (summary != null) {
+                                    sb2.append("\n   Historical: home ${summary.home_wins}/${summary.total}  |  away ${summary.away_wins}/${summary.total}\n")
+                                }
+                            }
+                            resultText.text = sb2.toString()
+                        }
+                        override fun onFailure(call: Call<com.bestg.betting.models.SimilarMatchupsResponse>, t: Throwable) {
+                            val current = resultText.text.toString()
+                            val sb2 = StringBuilder(current)
+                            sb2.append("   Failed to load similar matchups\n")
+                            resultText.text = sb2.toString()
+                        }
+                    })
                 } else {
-                    val tv = TextView(this@MainActivity)
-                    tv.text = "Prediction not available for this matchup"
-                    tv.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_error))
-                    tv.textSize = 14f
-                    resultContainer.addView(tv)
+                    resultText.text = "ML prediction not available for this matchup"
                 }
             }
             override fun onFailure(call: Call<MlPredictionResponse>, t: Throwable) {
                 showLoading(false)
-                clearCards()
-                val tv = TextView(this@MainActivity)
-                tv.text = "Error: ${t.message}"
-                tv.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_error))
-                tv.textSize = 14f
-                resultContainer.addView(tv)
+                resultText.text = "Error: ${t.message}"
             }
         })
     }
