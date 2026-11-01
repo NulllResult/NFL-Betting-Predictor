@@ -782,8 +782,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val sb = StringBuilder()
                 sb.append("LIVE GAME PREDICTIONS\n")
-                sb.append("==============================\n")
-                sb.append("${games.size} game(s) in progress\n\n")
+                sb.append("==============================\n\n")
 
                 for (g in games) {
                     val scoreDiff = g.home_score - g.away_score
@@ -793,47 +792,37 @@ class MainActivity : AppCompatActivity() {
                         else -> null
                     }
 
-                    sb.append("${g.away}  ${g.away_score}  @  ${g.home_score}  ${g.home}\n")
+                    sb.append("${g.away} vs ${g.home}\n")
+                    sb.append("==============================\n\n")
 
                     if (leader != null) {
-                        sb.append("  \u25B6 $leader leads by ${Math.abs(scoreDiff)}\n")
+                        sb.append("${leader} WINS\n\n")
                     } else {
-                        sb.append("  \u25B6 Tied game\n")
+                        sb.append("TIED GAME\n\n")
                     }
 
-                    sb.append("  Clock: ${g.clock}\n")
+                    sb.append("Current Score: ${g.away_score}-${g.home_score}\n")
+                    sb.append("Clock: ${g.clock} | Period: Q${g.period ?: 1}\n")
 
-                    // Win probability bar (home)
+                    val sp = g.home_spread
+                    if (sp != null) {
+                        val spText = if (sp > 0) "+${sp}" else "$sp"
+                        sb.append("Live Spread: ${g.home} $spText\n")
+                    }
+                    if (g.predicted_final_home != null && g.predicted_final_away != null) {
+                        sb.append("Proj. Final: ${g.away} ${g.predicted_final_away} - ${g.predicted_final_home} ${g.home}\n")
+                    }
+                    sb.append("\n")
+
+                    sb.append("Blended Win Probability:\n")
                     val hp = g.home_win_probability
                     val ap = g.away_win_probability
+                    sb.append("  ${g.home}: ${String.format("%.1f", hp)}%\n")
+                    sb.append("  ${g.away}: ${String.format("%.1f", ap)}%\n")
+
                     val homeBlocks = (hp / 5).toInt().coerceIn(0, 20)
                     val probBar = "\u2588".repeat(homeBlocks) + "\u2591".repeat(20 - homeBlocks)
-                    sb.append("  Home win: $probBar ${String.format("%.1f", hp)}%\n")
-                    sb.append("  Away win: ${String.format("%.1f", ap)}%\n")
-
-                    // Predicted final score if server provided it
-                    if (g.predicted_final_home != null && g.predicted_final_away != null) {
-                        sb.append("  Projected final: ${g.away} ${g.predicted_final_away} @ ${g.predicted_final_home} ${g.home}\n")
-                    }
-
-                    // Live spread if provided
-                    if (g.home_spread != null) {
-                        val sp = g.home_spread
-                        val spText = if (sp > 0) "+${sp}" else "$sp"
-                        sb.append("  Live spread: ${g.home} $spText\n")
-                    }
-
-                    // Momentum if provided
-                    if (!g.momentum.isNullOrBlank()) {
-                        sb.append("  Momentum: ${g.momentum}\n")
-                    }
-
-                    // Update count
-                    if (g.period != null) {
-                        sb.append("  Period: Q${g.period}\n")
-                    }
-
-                    sb.append("\n")
+                    sb.append("  Home Bar: $probBar\n\n")
                 }
                 resultText.text = sb.toString()
             }
