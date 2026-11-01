@@ -1632,13 +1632,7 @@ def live_prediction():
             model_spread = None
             model_total = None
             try:
-                # A. Try to find a pre-game prediction from history
-                history = load_prediction_history()
-                for prev in reversed(history):
-                    if (prev.get('team1') == home_name and prev.get('team2') == away_name) or (prev.get('team1') == away_name and prev.get('team2') == home_name):
-                        model_spread = prev.get('predicted_spread')
-                        model_total = prev.get('predicted_total')
-                        break
+                # Skip history — use synthetic calculation only (pre-game spreads are stale by halftime)
                 
                 # B. If no history, calculate synthetic values
                 if not model_spread:
