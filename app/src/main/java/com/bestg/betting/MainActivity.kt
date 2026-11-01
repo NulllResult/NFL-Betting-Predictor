@@ -792,9 +792,10 @@ class MainActivity : AppCompatActivity() {
                         else -> null
                     }
 
+                    // ══ PRE-GAME TEMPLATE LAYOUT ══
                     sb.append("${g.away} vs ${g.home}\n")
                     sb.append("==============================\n\n")
-
+                    
                     if (leader != null) {
                         sb.append("${leader} WINS\n\n")
                     } else {
@@ -802,15 +803,13 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     sb.append("Current Score: ${g.away_score}-${g.home_score}\n")
-                    sb.append("Clock: ${g.clock} | Period: Q${g.period ?: 1}\n")
-
-                    val sp = g.home_spread
-                    if (sp != null) {
-                        val spText = if (sp > 0) "+${sp}" else "$sp"
-                        sb.append("Live Spread: ${g.home} $spText\n")
+                    sb.append("Clock: ${g.clock} (Q${g.period ?: 1})\n")
+                    
+                    if (g.model_spread != null) {
+                        sb.append("Model Spread: ${g.model_spread}\n")
                     }
-                    if (g.predicted_final_home != null && g.predicted_final_away != null) {
-                        sb.append("Proj. Final: ${g.away} ${g.predicted_final_away} - ${g.predicted_final_home} ${g.home}\n")
+                    if (g.model_total != null) {
+                        sb.append("Total: ${g.model_total}\n")
                     }
                     sb.append("\n")
 
@@ -819,10 +818,11 @@ class MainActivity : AppCompatActivity() {
                     val ap = g.away_win_probability
                     sb.append("  ${g.home}: ${String.format("%.1f", hp)}%\n")
                     sb.append("  ${g.away}: ${String.format("%.1f", ap)}%\n")
-
+                    
                     val homeBlocks = (hp / 5).toInt().coerceIn(0, 20)
                     val probBar = "\u2588".repeat(homeBlocks) + "\u2591".repeat(20 - homeBlocks)
-                    sb.append("  Home Bar: $probBar\n\n")
+                    sb.append("  Home: $probBar\n")
+                    sb.append("  Away: " + "\u2588".repeat((ap / 5).toInt().coerceIn(0, 20)) + "\u2591".repeat(20 - (ap / 5).toInt().coerceIn(0, 20)) + "\n\n")
                 }
                 resultText.text = sb.toString()
             }

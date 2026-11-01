@@ -30,7 +30,10 @@ data class LivePrediction(
     val home_spread: Double? = null,
     val predicted_final_home: Int? = null,
     val predicted_final_away: Int? = null,
-    val momentum: String? = null
+    val momentum: String? = null,
+    val live_spread: String? = null,
+    val model_spread: String? = null,
+    val model_total: Int? = null
 )
 data class LivePredictionResponse(val live: List<LivePrediction>)
 data class OddsGame(val game: String, val provider: String, val spread: String, val over_under: Any?, val home_ml: Any?, val away_ml: Any?)

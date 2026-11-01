@@ -1613,23 +1613,60 @@ def live_prediction():
                 continue
             home = next((x for x in comps if x.get('homeAway') == 'home'), comps[0])
             away = next((x for x in comps if x.get('homeAway') == 'away'), comps[1])
+            
+            home_name = home.get('team', {}).get('displayName', '')
+            away_name = away.get('team', {}).get('displayName', '')
+            
             hs = int(home.get('score', 0) or 0)
             as_ = int(away.get('score', 0) or 0)
             clock = status.get('shortDetail', '')
             period = status.get('period', 0)
-            # Live win prob: start at 50, shift by score diff, amplify as game nears end
+            
+            # Get the pre-game model prediction for this matchup
+            model_spread = None
+            model_total = None
+            try:
+                # Try to find the pre-game prediction in history
+                history = load_prediction_history()
+                for prev in reversed(history):
+                    if (prev.get('team1') == home_name and prev.get('team2') == away_name) or (prev.get('team1') == away_name and prev.get('team2') == home_name):
+                        model_spread = prev.get('predicted_spread')
+                        model_total = prev.get('predicted_total')
+                        break
+                
+                # If no history, calculate a synthetic one from current score + time remaining
+                if model_spread is None:
+                    progress = min(period / 4.0, 1.0)
+                    diff = hs - as_
+                    prob_home = 50 + (diff * 8 * (0.3 + progress * 0.7))
+                    prob_home = max(1, min(99, prob_home))
+                    model_spread_val = ((50 - prob_home) / 50) * 14
+                    if model_spread_val < 0:
+                        model_spread = f"{home_name} -{abs(model_spread_val):.1f}"
+                    else:
+                        model_spread = f"{away_name} -{abs(model_spread_val):.1f}"
+                    model_total = int(hs + as_ + (48 * (1 - progress))) # Rough projection
+            except Exception:
+                pass
+
+            # Live win probability
             progress = min(period / 4.0, 1.0)
             diff = hs - as_
             prob_home = 50 + (diff * 8 * (0.3 + progress * 0.7))
             prob_home = max(1, min(99, prob_home))
+            
             results.append({
-                "home": home.get('team', {}).get('abbreviation', ''),
-                "away": away.get('team', {}).get('abbreviation', ''),
+                "home": home_name,
+                "away": away_name,
                 "home_score": hs,
                 "away_score": as_,
                 "clock": clock,
+                "period": period,
                 "home_win_probability": round(prob_home, 1),
-                "away_win_probability": round(100 - prob_home, 1)
+                "away_win_probability": round(100 - prob_home, 1),
+                "live_spread": f"{home_name} {(hs - as_):+d}" if hs != as_ else "Pick'em",
+                "model_spread": model_spread,
+                "model_total": model_total,
             })
         return jsonify({"live": results})
     except Exception as e:
