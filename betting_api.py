@@ -2900,7 +2900,11 @@ def ml_predict():
             if (home_abbr == t1_abbr and away_abbr == t2_abbr) or (home_abbr == t2_abbr and away_abbr == t1_abbr):
                 status = ev.get('status', {}).get('type', {})
                 if status.get('state', '') == 'in':
-                    return jsonify({"error": f"{team1} vs {team2} is currently live. Wait until the game ends."}), 400
+                    history = load_prediction_history()
+                    for prev in reversed(history):
+                        if (prev.get('team1') == team1 and prev.get('team2') == team2) or (prev.get('team1') == team2 and prev.get('team2') == team1):
+                            return jsonify({"team1": team1, "team2": team2, "predicted_winner": prev.get('predicted_winner'), "predicted_score": prev.get('predicted_score'), "predicted_spread": prev.get('predicted_spread'), "predicted_total": prev.get('predicted_total'), "confidence": prev.get('confidence'), "confidence_level": "PREVIOUS", "note": "Game is live. Showing last logged prediction."})
+                    return jsonify({"error": f"{team1} vs {team2} is currently live. No prior prediction found."}), 400
                 date_str = ev.get('date', '')
                 try:
                     game_dt = _sched_dt.fromisoformat(date_str.replace('Z', '+00:00'))
@@ -2959,7 +2963,24 @@ def ml_predict():
 
     prob_home = predict_ml_probability(team1, team2)
     if prob_home is None:
-        return jsonify({"error": "Insufficient data for ML prediction"}), 400
+        # Look for the last logged prediction for this matchup
+        history = load_prediction_history()
+        for prev in reversed(history):
+            # Match teams in either order (home/away)
+            if (prev.get('team1') == team1 and prev.get('team2') == team2) or (prev.get('team1') == team2 and prev.get('team2') == team1):
+                return jsonify({
+                    "team1": team1,
+                    "team2": team2,
+                    "predicted_winner": prev.get('predicted_winner'),
+                    "predicted_score": prev.get('predicted_score'),
+                    "predicted_spread": prev.get('predicted_spread'),
+                    "predicted_total": prev.get('predicted_total'),
+                    "confidence": prev.get('confidence'),
+                    "confidence_level": "PREVIOUS",
+                    "note": "ML model unavailable for live game. Showing last logged prediction."
+                })
+        # If no prior prediction exists at all, return the original error
+        return jsonify({"error": "Insufficient data for ML prediction and no prior prediction found"}), 400
     
     # Fetch market data
     market_home_prob = None
