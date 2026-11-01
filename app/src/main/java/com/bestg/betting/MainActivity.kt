@@ -805,12 +805,11 @@ class MainActivity : AppCompatActivity() {
                     sb.append("Current Score: ${g.away_score}-${g.home_score}\n")
                     sb.append("Clock: ${g.clock} (Q${g.period ?: 1})\n")
                     
-                    if (g.model_spread != null) {
-                        sb.append("Model Spread: ${g.model_spread}\n")
-                    }
-                    if (g.model_total != null) {
-                        sb.append("Total: ${g.model_total}\n")
-                    }
+                    // ALWAYS show the spread, even if null
+                    val spreadText = g.model_spread ?: "N/A"
+                    val totalText = g.model_total?.toString() ?: "N/A"
+                    sb.append("Model Spread: $spreadText\n")
+                    sb.append("Total: $totalText\n")
                     sb.append("\n")
 
                     sb.append("Blended Win Probability:\n")

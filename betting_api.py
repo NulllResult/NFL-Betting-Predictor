@@ -1635,7 +1635,7 @@ def live_prediction():
                         break
                 
                 # If no history, calculate a synthetic one from current score + time remaining
-                if model_spread is None:
+                if model_spread is None or model_spread == "":
                     progress = min(period / 4.0, 1.0)
                     diff = hs - as_
                     prob_home = 50 + (diff * 8 * (0.3 + progress * 0.7))
@@ -1645,7 +1645,10 @@ def live_prediction():
                         model_spread = f"{home_name} -{abs(model_spread_val):.1f}"
                     else:
                         model_spread = f"{away_name} -{abs(model_spread_val):.1f}"
-                    model_total = int(hs + as_ + (48 * (1 - progress))) # Rough projection
+                    
+                    # Ensure total is never null
+                    if model_total is None:
+                        model_total = int(hs + as_ + (48 * (1 - progress)))
             except Exception:
                 pass
 
