@@ -1620,13 +1620,19 @@ def live_prediction():
             hs = int(home.get('score', 0) or 0)
             as_ = int(away.get('score', 0) or 0)
             clock = status.get('shortDetail', '')
-            period = status.get('period', 0)
-            
-            # Get the pre-game model prediction for this matchup
+            period = int(status.get('period', 0) or 0)
+
+            # ── 1. Live Win Probability ──
+            progress = min(period / 4.0, 1.0)
+            diff = hs - as_
+            prob_home = 50 + (diff * 8 * (0.3 + progress * 0.7))
+            prob_home = max(1, min(99, prob_home))
+
+            # ── 2. Model Spread & Total ──
             model_spread = None
             model_total = None
             try:
-                # Try to find the pre-game prediction in history
+                # A. Try to find a pre-game prediction from history
                 history = load_prediction_history()
                 for prev in reversed(history):
                     if (prev.get('team1') == home_name and prev.get('team2') == away_name) or (prev.get('team1') == away_name and prev.get('team2') == home_name):
@@ -1634,30 +1640,41 @@ def live_prediction():
                         model_total = prev.get('predicted_total')
                         break
                 
-                # If no history, calculate a synthetic one from current score + time remaining
-                if model_spread is None or model_spread == "":
-                    progress = min(period / 4.0, 1.0)
-                    diff = hs - as_
-                    prob_home = 50 + (diff * 8 * (0.3 + progress * 0.7))
-                    prob_home = max(1, min(99, prob_home))
-                    model_spread_val = ((50 - prob_home) / 50) * 14
-                    if model_spread_val < 0:
-                        model_spread = f"{home_name} -{abs(model_spread_val):.1f}"
+                # B. If no history, calculate synthetic values
+                if not model_spread:
+                    # If the game has started, project the final score based on current pace
+                    if period > 0:
+                        projected_hs = hs + int((hs / max(period, 1)) * (4 - period))
+                        projected_as = as_ + int((as_ / max(period, 1)) * (4 - period))
+                        final_diff = projected_hs - projected_as
+                        
+                        if final_diff < 0:
+                            model_spread = f"{away_name} -{abs(final_diff):.1f}"
+                        elif final_diff > 0:
+                            model_spread = f"{home_name} -{abs(final_diff):.1f}"
+                        else:
+                            model_spread = "Pick'em"
+                        
+                        if not model_total:
+                            model_total = projected_hs + projected_as
                     else:
-                        model_spread = f"{away_name} -{abs(model_spread_val):.1f}"
-                    
-                    # Ensure total is never null
-                    if model_total is None:
-                        model_total = int(hs + as_ + (48 * (1 - progress)))
-            except Exception:
-                pass
+                        # Game just started, use probability
+                        model_spread_val = ((50 - prob_home) / 50) * 14
+                        if model_spread_val < 0:
+                            model_spread = f"{home_name} -{abs(model_spread_val):.1f}"
+                        else:
+                            model_spread = f"{away_name} -{abs(model_spread_val):.1f}"
+                        if not model_total:
+                            model_total = 48
+            except Exception as e:
+                print(f"Error calculating model spread for {home_name}: {e}")
 
-            # Live win probability
-            progress = min(period / 4.0, 1.0)
-            diff = hs - as_
-            prob_home = 50 + (diff * 8 * (0.3 + progress * 0.7))
-            prob_home = max(1, min(99, prob_home))
-            
+            # ── 3. Absolute Fallback (if still None) ──
+            if not model_spread:
+                model_spread = "Pick'em"
+            if not model_total:
+                model_total = hs + as_ + 20 # Rough default
+
             results.append({
                 "home": home_name,
                 "away": away_name,
@@ -1669,7 +1686,7 @@ def live_prediction():
                 "away_win_probability": round(100 - prob_home, 1),
                 "live_spread": f"{home_name} {(hs - as_):+d}" if hs != as_ else "Pick'em",
                 "model_spread": model_spread,
-                "model_total": model_total,
+                "model_total": int(model_total),
             })
         return jsonify({"live": results})
     except Exception as e:
