@@ -338,6 +338,24 @@ def weather_point_adjustment(weather):
     return adj
 
 
+
+# ═══════════════════════════════════════════════════════════════
+# TRUE HOME FIELD ADVANTAGES (used by /ml_predict)
+# ═══════════════════════════════════════════════════════════════
+TRUE_HFA = {
+    "Seattle Seahawks": 4.0, "Kansas City Chiefs": 3.5, "Buffalo Bills": 3.5,
+    "Pittsburgh Steelers": 3.5, "Green Bay Packers": 3.5, "New England Patriots": 3.0,
+    "Philadelphia Eagles": 3.0, "Baltimore Ravens": 3.0, "Denver Broncos": 3.0,
+    "New Orleans Saints": 3.0, "Minnesota Vikings": 3.0, "Cleveland Browns": 3.0,
+    "Dallas Cowboys": 2.5, "San Francisco 49ers": 2.5, "Miami Dolphins": 2.5,
+    "Los Angeles Chargers": 1.5, "Las Vegas Raiders": 1.5, "Los Angeles Rams": 1.5,
+    "New York Giants": 2.0, "New York Jets": 2.0, "Chicago Bears": 2.5,
+    "Detroit Lions": 2.5, "Houston Texans": 2.5, "Indianapolis Colts": 2.5,
+    "Jacksonville Jaguars": 2.5, "Tennessee Titans": 2.5, "Atlanta Falcons": 2.0,
+    "Carolina Panthers": 2.5, "Tampa Bay Buccaneers": 2.5, "Arizona Cardinals": 2.0,
+    "Washington Commanders": 2.0, "Cincinnati Bengals": 2.5
+}
+
 @app.route('/teams', methods=['GET'])
 def teams():
     """Return the canonical NFL team list."""
@@ -2923,6 +2941,8 @@ def debug_prediction():
     })
 
 @app.route('/ml_predict', methods=['GET'])
+
+
 def ml_predict():
     """Prediction using trained ML model"""
     team1 = request.args.get('team1')
@@ -3075,10 +3095,55 @@ def ml_predict():
     except:
         pass
     
+    # ───── ESPN CORE API FALLBACK (Real Odds) ─────
+    if market_home_prob is None:
+        try:
+            # 1. Get the event ID from the scoreboard
+            sb_url = f"{ESPN_SITE_V2}/scoreboard?dates=2026"
+            sb_data = requests.get(sb_url, timeout=5).json()
+            target_event_id = None
+            
+            for ev in sb_data.get('events', []):
+                comps = ev.get('competitions', [{}])[0].get('competitors', [])
+                if len(comps) < 2: continue
+                home = next((c.get('team', {}).get('displayName') for c in comps if c.get('homeAway') == 'home'), '')
+                away = next((c.get('team', {}).get('displayName') for c in comps if c.get('homeAway') == 'away'), '')
+                if (home == team1 and away == team2) or (home == team2 and away == team1):
+                    target_event_id = ev.get('id')
+                    break
+            
+            # 2. Fetch odds from the Core API using the event ID
+            if target_event_id:
+                odds_url = f"https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/{target_event_id}/competitions/{target_event_id}/odds"
+                odds_data = requests.get(odds_url, timeout=5).json()
+                
+                # ESPN returns a list of odds providers. We look for a consensus or major book.
+                for item in odds_data.get('items', []):
+                    # Prefer DraftKings (41), Caesars (38), or consensus
+                    # Don't restrict to DraftKings/Caesars, just grab the first one with ML data
+                    if True:
+                        spread = item.get('spread')
+                        over_under = item.get('overUnder')
+                        home_ml = item.get('homeTeamOdds', {}).get('moneyLine')
+                        away_ml = item.get('awayTeamOdds', {}).get('moneyLine')
+                        
+                        if over_under: market_total = float(over_under)
+                        if home_ml and away_ml:
+                            def m2p(ml):
+                                ml = float(ml)
+                                return (100/(ml+100)) if ml > 0 else (abs(ml)/(abs(ml)+100))
+                            hp = m2p(home_ml)
+                            ap = m2p(away_ml)
+                            market_home_prob = round(hp / (hp + ap) * 100, 1)
+                        break # Stop after finding a good provider
+        except Exception as e:
+            print(f"[ESPN CORE ODDS] {e}")
+    # ─────────────────────────────────────────────────
+
     # Blend: use adaptive weight from /blend_weight, defaults to 50/50
     ml_prob_pct = prob_home * 100
     if market_home_prob is not None:
-        market_weight = get_adaptive_blend_weight()
+        market_weight = max(0.60, get_adaptive_blend_weight()) # FIX 1
         model_weight = 1.0 - market_weight
         blended = round(ml_prob_pct * model_weight + market_home_prob * market_weight, 1)
         edge = round(ml_prob_pct - market_home_prob, 1)
@@ -3198,9 +3263,9 @@ def ml_predict():
     # MARKET_DISAGREEMENT_FILTER: if model and book disagree by >15%, it's a blind spot
     if market_home_prob is not None:
         disagreement = abs(ml_prob_pct - market_home_prob)
-        if disagreement > 15.0:
+        if disagreement > 10.0: # FIX 5
             is_no_pick = True
-            no_pick_reasons.append(f"Model/Market disagreement {disagreement:.1f}% (>15% threshold)")
+            no_pick_reasons.append(f"Model/Market disagreement {disagreement:.1f}% (>10% threshold)")
             advanced_adjustments.append(f"⚠ NO PICK: model vs market disagree {disagreement:.1f}%")
 
     # SIGNAL_CONFLICT_PENALTY: if 2+ adjustments push opposite directions, penalize
@@ -3236,6 +3301,7 @@ def ml_predict():
         factors_detail.append("No contrarian/schedule/coaching adjustments applied (market data missing or no triggers).")
 
     # Winner from probability (will be OVERRIDDEN by spread below)
+    # Winner is derived from blended probability (team1_pct)
     winner = team1 if blended > 50 else team2
 
     # Raw confidence = distance from 50/50
@@ -3293,10 +3359,15 @@ def ml_predict():
 
     # Blend probability with PPG (60% PPG since ML model is stuck near 50%)
     blended_spread = (prob_spread * 0.4) + (scoring_spread * 0.6)
+    blended_spread -= TRUE_HFA.get(team1, 3.0)
 
     # If PPG data is essentially flat (both 22.0), use probability only
     if abs(scoring_spread) < 0.1:
         blended_spread = prob_spread
+
+    # FIX 4: Division Game Penalty
+    if is_divisional(team1, team2):
+        blended_spread = blended_spread * 0.85
 
     # Cap at +/- 14
     blended_spread = max(-14.0, min(14.0, blended_spread))
@@ -3311,7 +3382,7 @@ def ml_predict():
                 abbr = TEAM_MAP.get(team_name, '')
                 sched = get_cached_or_fetch(f"{ESPN_SITE_V2}/teams/{abbr}/schedule?season=2026&seasontype=2", f"ppg_{abbr}")
                 if not sched or 'events' not in sched: return 22.0
-                pf_total = 0; games = 0
+                completed = []
                 for ev in sched['events']:
                     comp = ev.get('competitions', [{}])[0]
                     if not comp.get('status', {}).get('type', {}).get('completed'): continue
@@ -3319,8 +3390,11 @@ def ml_predict():
                         if c.get('team', {}).get('abbreviation', '').upper() == abbr.upper():
                             sv = c.get('score', 0)
                             if isinstance(sv, dict): sv = sv.get('value', 0)
-                            pf_total += int(sv) if sv else 0; games += 1; break
-                return (pf_total / games) if games > 0 else 22.0
+                            completed.append(int(sv) if sv else 0)
+                            break
+                if not completed: return 22.0
+                recent = completed[-4:]
+                return sum(recent) / len(recent)
             computed_total = _ppg(team1) + _ppg(team2) - 0.3 * abs(blended_spread)
             total = max(38, min(56, int(round(computed_total))))
         except Exception:
@@ -3365,11 +3439,32 @@ def ml_predict():
         s1 += delta // 2
         s2 += delta - (delta // 2)
     
-    # Final safety: winner must have higher score
-    if winner == team1 and s1 <= s2:
-        s1 = s2 + abs(spread_mag if spread_mag > 0 else 1)
-    elif winner == team2 and s2 <= s1:
-        s2 = s1 + abs(spread_mag if spread_mag > 0 else 1)
+    # Final safety: winner, score, and spread MUST all agree
+    # Step 1: Recompute spread from final score
+    actual_diff = s1 - s2
+    # Step 2: Recompute winner from final score
+    if actual_diff > 0:
+        winner = team1
+    elif actual_diff < 0:
+        winner = team2
+    else:
+        # Tie — add 1 to winner based on blended prob
+        team1_pct = 100 - blended
+        if team1_pct > 50:
+            winner = team1
+            s1 += 1
+        else:
+            winner = team2
+            s2 += 1
+        actual_diff = s1 - s2
+    
+    # Step 3: Recompute our_spread_str to match actual score difference
+    if actual_diff > 0:
+        our_spread_str = f"{team1} -{abs(actual_diff):.1f}"
+    elif actual_diff < 0:
+        our_spread_str = f"{team2} -{abs(actual_diff):.1f}"
+    else:
+        our_spread_str = "Pick'em"
 
     # Apply primetime/TNF slot adjustments (only affects total, not spread)
     slot = "SUNDAY_EARLY"
@@ -3410,7 +3505,7 @@ def ml_predict():
     else:
         our_spread_str = "Pick'em"
         # For pick'em, use probability tiebreaker
-        winner = team1 if blended > 50 else team2
+        winner = team1 if ml_prob_pct > 50 else team2
 
     # Confidence string (calibrated value)
     factors.append(f"Confidence: {confidence}% ({conf_level})")
@@ -3472,8 +3567,8 @@ def ml_predict():
     return jsonify({
         "team1": team1,
         "team2": team2,
-        "team1_win_probability": round(100 - blended, 1),
-        "team2_win_probability": round(blended, 1),
+        "team1_win_probability": round(blended, 1),
+        "team2_win_probability": round(100 - blended, 1),
         "predicted_winner": winner,
         "predicted_score": f"{s1}-{s2}",
         "predicted_spread": our_spread_str,
